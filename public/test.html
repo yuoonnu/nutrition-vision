@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>OCR + 스코어링 통합 테스트</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #1a1a1a; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 32px; }
+  .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  button { padding: 8px 16px; border-radius: 6px; border: 1px solid #333; background: #111; color: #fff; cursor: pointer; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
+  td, th { border: 1px solid #eee; padding: 6px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .ok { color: #0a7d2c; } .needs_review { color: #b8860b; } .failed { color: #c0392b; }
+  .rank1 { background: #eafbea; font-weight: bold; }
+  .muted { color: #888; font-size: 12px; }
+  select, input[type=text] { padding: 6px; }
+  pre { background: #fafafa; padding: 10px; border-radius: 6px; font-size: 11px; max-height: 200px; overflow: auto; }
+</style>
+</head>
+<body>
+
+<h1>🧪 OCR → 스코어링 통합 테스트</h1>
+<p class="muted">
+  사진 2~3장(제품별 1장씩)을 올리면 각 사진을 <code>/api/extract/batch</code>로 판독하고,
+  결과를 <code>/api/recommend</code>(Node → Flask 프록시)에 넘겨 목표별 순위를 매깁니다. 프로덕션 UI가 아니라 파이프라인 검증용입니다.
+</p>
+
+<div class="box">
+  <div class="row">
+    <input type="file" id="files" multiple accept="image/*" />
+  </div>
+  <div class="row">
+    <label>비교 목표:
+      <select id="goal">
+        <option value="weight_loss">🏋️‍♂️ 체중감량 (저칼로리·고단백·저당)</option>
+        <option value="muscle">💪 가성비 근성장 (고단백·g당 최저가)</option>
+        <option value="blood_sugar">🩸 혈당 케어 (최저 당류·저탄수화물)</option>
+        <option value="anti_swelling">💧 붓기 방지 (저나트륨·저당·저지방)</option>
+      </select>
+    </label>
+  </div>
+  <div class="row">
+    <button id="run">① 인식 + 스코어링 실행</button>
+    <span id="status" class="muted"></span>
+  </div>
+</div>
+
+<div id="extractResult"></div>
+<div id="scoreResult"></div>
+<div id="rawResult"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+// Node 서버가 /api/recommend에서 Flask(:5000)로 프록시해주므로, 브라우저는 항상 같은 origin(상대경로)만 호출한다.
+const SCORING_PATH = "/api/recommend";
+
+$("run").addEventListener("click", async () => {
+  const files = $("files").files;
+  if (!files.length) { alert("사진을 최소 1장 선택하세요."); return; }
+
+  $("run").disabled = true;
+  $("status").textContent = "① OCR 판독 중... (Gemini 호출, 수 초 소요)";
+  $("extractResult").innerHTML = "";
+  $("scoreResult").innerHTML = "";
+  $("rawResult").innerHTML = "";
+
+  try {
+    // 1. OCR 판독 — 파일마다 별도 제품으로 처리됨
+    const form = new FormData();
+    for (const f of files) form.append("images", f);
+    const extractRes = await fetch("/api/extract/batch", { method: "POST", body: form });
+    if (!extractRes.ok) throw new Error(`extract 실패: ${extractRes.status}`);
+    const batch = await extractRes.json();
+
+    renderExtract(batch);
+
+    // 2. 스코어링에 넘길 products 구성.
+    //    라벨의 원래 표시 기준(1회 제공량/총 내용량/100g)이 제품마다 달라도 상관없다.
+    //    per100(100g/ml당 환산값)은 normalize.js가 각 제품별로 독립적으로 계산해두는 값이라
+    //    "다른 제품도 이 기준을 갖고 있는지" 따질 필요가 없다 — 애초에 포장 크기가 다른 제품끼리
+    //    공정하게 비교하려고 만든 필드가 per100이다. score_products()의 가중치 계산은
+    //    "숫자가 어떤 단위인지" 모르고 그냥 비교하므로, 비교 기준을 통일하는 건 여기(클라이언트)의 책임이다.
+    const usable = batch.products.filter((p) => p.status !== "failed" && p.normalized?.per100);
+    const excluded = batch.products.filter((p) => !usable.includes(p));
+
+    const products = usable.map((p, i) => ({
+      name: p.product?.name || `제품 ${i + 1} (사진: ${p.filename})`,
+      nutrients: p.normalized.per100,
+    }));
+
+    if (products.length < 2) {
+      const reasons = excluded.map((p) =>
+        `${p.filename}: ${p.status === "failed" ? "판독 실패" : "100g/ml당 환산 불가 (기준 단위 또는 중량 미판독)"}`
+      );
+      $("status").innerHTML =
+        `⚠️ 스코어링 생략 — 100g/ml당으로 환산 가능한 제품이 2개 미만입니다.<br/>` +
+        reasons.map((r) => `· ${r}`).join("<br/>");
+    } else {
+      if (excluded.length) {
+        $("status").innerHTML = excluded.map((p) => `· ${p.filename} 제외됨 (환산 불가)`).join("<br/>") + "<br/>";
+      }
+      $("status").innerHTML += "② 스코어링 중...";
+      const scoreRes = await fetch(SCORING_PATH, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ products, goal: $("goal").value }),
+      });
+      if (!scoreRes.ok) {
+        const err = await scoreRes.json().catch(() => ({}));
+        throw new Error(`recommend 실패: ${scoreRes.status} ${err.error || ""}`);
+      }
+      const scored = await scoreRes.json();
+      renderScore(scored);
+      $("status").textContent = "완료 (100g/ml당 기준)";
+    }
+
+    $("rawResult").innerHTML = `<h2>원본 응답 (디버그용)</h2><pre>${JSON.stringify(batch, null, 2)}</pre>`;
+  } catch (err) {
+    console.error(err);
+    $("status").textContent = "❌ " + err.message;
+  } finally {
+    $("run").disabled = false;
+  }
+});
+
+function renderExtract(batch) {
+  const rows = batch.products.map((p, i) => {
+    const n = p.normalized?.per100;
+    const basisNote = p.raw?.basis === "unknown" || !p.raw?.basis ? "기준 미판독" : p.raw.basis;
+    return `<tr>
+      <td>${p.product?.name ?? "(이름 미판독)"}<div class="muted">${p.filename} · ${basisNote}${n ? "" : " · 100g환산 불가"}</div></td>
+      <td class="${p.status}">${p.status}</td>
+      <td>${(p.confidence ?? 0).toFixed(2)}</td>
+      <td>${n ? n.calorie ?? "-" : "-"}</td>
+      <td>${n ? n.sugar ?? "-" : "-"}</td>
+      <td>${n ? n.sodium ?? "-" : "-"}</td>
+      <td>${n ? n.protein ?? "-" : "-"}</td>
+      <td>${(p.issues ?? []).map((iss) => iss.message).join("<br/>") || "-"}</td>
+    </tr>`;
+  }).join("");
+
+  $("extractResult").innerHTML = `
+    <h2>① OCR 판독 결과 <span class="muted">(100g/ml당 환산 — ②의 스코어링과 동일 기준)</span></h2>
+    <div class="box">
+      <table>
+        <thead><tr><th>제품 (기준)</th><th>상태</th><th>신뢰도</th><th>열량</th><th>당류</th><th>나트륨</th><th>단백질</th><th>이슈</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="muted">요약: 총 ${batch.summary.total} · 정상 ${batch.summary.ok} · 확인필요 ${batch.summary.needsReview} · 실패 ${batch.summary.failed} · 비교가능 ${batch.summary.comparable}</p>
+    </div>`;
+}
+
+function renderScore(scored) {
+  const rows = scored.ranked.map((r, i) => `
+    <tr class="${i === 0 ? "rank1" : ""}">
+      <td>${i + 1}위</td>
+      <td>${r.name}</td>
+      <td>${r.score.toFixed(3)}</td>
+      <td>${Object.entries(r.breakdown).map(([k, v]) => `${k}:${v}`).join(", ")}</td>
+    </tr>`).join("");
+
+  $("scoreResult").innerHTML = `
+    <h2>② 스코어링 결과 <span class="muted">(비교 기준: 100g/ml당)</span></h2>
+    <div class="box">
+      <table>
+        <thead><tr><th>순위</th><th>제품</th><th>점수</th><th>항목별 기여도</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p><strong>💬 ${scored.recommendation}</strong></p>
+      <p class="muted">사용된 가중치: ${JSON.stringify(scored.weights_used)}</p>
+    </div>`;
+}
+</script>
+</body>
+</html>
