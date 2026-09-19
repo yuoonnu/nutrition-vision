@@ -70,7 +70,7 @@ app.post("/api/correct", (req, res) => {
  * Node가 대신 호출해서 그대로 전달하면 브라우저는 3000번 포트 하나만 알면 되고,
  * Flask는 내부망(같은 서버)에서만 접근 가능하게 막아둘 수 있다.
  */
-const SCORING_URL = process.env.SCORING_URL ?? "https://nutrition-recommender-jerw.onrender.com/recommend";
+const SCORING_URL = process.env.SCORING_URL ?? "http://localhost:5000/recommend";
 const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN;
 
 app.post("/api/recommend", async (req, res) => {
