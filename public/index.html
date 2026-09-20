@@ -138,7 +138,7 @@
               </div>
               <input type="text" id="name-0" placeholder="제품 A 이름" class="w-full text-xs p-1.5 border rounded-lg bg-white">
               <div class="relative">
-                <input type="number" step="100" id="price-0" placeholder="가격" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
+                <input type="number" step="100" min="0" id="price-0" placeholder="가격" oninput="preventNegative(this)" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
                 <span class="absolute right-2 top-1.5 text-xs text-gray-400">원</span>
               </div>
             </div>
@@ -154,7 +154,7 @@
               </div>
               <input type="text" id="name-1" placeholder="제품 B 이름" class="w-full text-xs p-1.5 border rounded-lg bg-white">
               <div class="relative">
-                <input type="number" step="100" id="price-1" placeholder="가격" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
+                <input type="number" step="100" min="0" id="price-1" placeholder="가격" oninput="preventNegative(this)" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
                 <span class="absolute right-2 top-1.5 text-xs text-gray-400">원</span>
               </div>
             </div>
@@ -170,7 +170,7 @@
               </div>
               <input type="text" id="name-2" placeholder="제품 C 이름" class="w-full text-xs p-1.5 border rounded-lg bg-white">
               <div class="relative">
-                <input type="number" step="100" id="price-2" placeholder="가격" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
+                <input type="number" step="100" min="0" id="price-2" placeholder="가격" oninput="preventNegative(this)" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
                 <span class="absolute right-2 top-1.5 text-xs text-gray-400">원</span>
               </div>
             </div>
@@ -186,7 +186,7 @@
               </div>
               <input type="text" id="name-3" placeholder="제품 D 이름" class="w-full text-xs p-1.5 border rounded-lg bg-white">
               <div class="relative">
-                <input type="number" step="100" id="price-3" placeholder="가격" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
+                <input type="number" step="100" min="0" id="price-3" placeholder="가격" oninput="preventNegative(this)" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
                 <span class="absolute right-2 top-1.5 text-xs text-gray-400">원</span>
               </div>
             </div>
@@ -449,6 +449,14 @@
     }
     function closeWeightModal() { document.getElementById('modal-weight').classList.add('hidden'); }
 
+    // 가격 입력창에 음수가 남지 않도록 즉시 0으로 보정한다.
+    // (min="0" 속성은 스피너 클릭엔 효과가 있지만, 직접 '-' 를 타이핑하는 건 못 막는 브라우저가 있어 같이 사용)
+    function preventNegative(input) {
+      if (input.value !== '' && Number(input.value) < 0) {
+        input.value = 0;
+      }
+    }
+
     function previewImage(event, slot) {
       const file = event.target.files[0];
       if (!file) return;
@@ -494,7 +502,7 @@
         // 3. 사용자가 입력한 이름/가격을 결합. 영양소는 100g/ml당 값 기준으로 통일
         products = usable.map(({ p, slot }, i) => {
           const nameInput = document.getElementById(`name-${slot}`)?.value.trim();
-          const priceInput = Number(document.getElementById(`price-${slot}`)?.value) || 0;
+          const priceInput = Math.max(0, Number(document.getElementById(`price-${slot}`)?.value) || 0);
           const per100 = p.normalized.per100;
           const packageGrams = p.normalized.meta?.packageGrams ?? null;
           const perPackageProtein = p.normalized.perPackage?.protein ?? null;
@@ -593,7 +601,7 @@
       const labelBg = active ? 'bg-blue-50/80' : 'bg-white';
       const labelText = active ? 'text-blue-900 font-bold' : 'font-medium';
       const badge = active
-        ? ' <span class="text-[7px] text-blue-500 font-bold">●기준반영</span>'
+        ? ' <span class="text-[9px] text-blue-500 font-bold">●기준반영</span>'
         : '';
 
       return `
@@ -683,7 +691,7 @@
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">가격 (원)</label>
-                <input type="number" id="edit-price-${idx}" value="${p.price}" class="w-full p-1 border rounded bg-white text-xs text-right font-bold text-emerald-700">
+                <input type="number" min="0" id="edit-price-${idx}" value="${p.price}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right font-bold text-emerald-700">
               </div>
             </div>
           </div>
@@ -705,7 +713,7 @@
         p.fat = Number(document.getElementById(`edit-fat-${idx}`).value) || 0;
         p.sodium = Number(document.getElementById(`edit-sod-${idx}`).value) || 0;
         p.cholesterol = Number(document.getElementById(`edit-chol-${idx}`).value) || 0;
-        p.price = Number(document.getElementById(`edit-price-${idx}`).value) || 0;
+        p.price = Math.max(0, Number(document.getElementById(`edit-price-${idx}`).value) || 0);
       });
 
       renderResultTable();
