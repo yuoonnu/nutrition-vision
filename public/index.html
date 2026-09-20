@@ -137,7 +137,7 @@
             <div class="flex items-start gap-1.5">
               <span class="text-base">🤖</span>
               <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">
-                안녕하세요! "단백질 10g 이상", "콜레스테롤 10mg 이하" 등 선호 조건을 자유롭게 적어주세요!
+                안녕하세요! "유당불내증 있음", "콜레스테롤 10mg 이하" 등 특이사항이나 선호 조건을 자유롭게 적어주세요!
               </p>
             </div>
           </div>
@@ -377,6 +377,39 @@
     const EXTRACT_PATH = `${API_BASE}/api/extract/batch`;
     const RECOMMEND_PATH = `${API_BASE}/api/recommend`;
 
+    /**
+     * 서버/네트워크 연결 문제(타임아웃, 502/503/504, DNS 실패 등)를 나타내는 전용 에러.
+     * 이 에러는 사용자에게 기술적인 상세 메시지 대신 통일된 안내 문구를 보여주는 데 쓴다.
+     */
+    class ConnectionError extends Error {
+      constructor() {
+        super("서버 연결이 불안정합니다. 잠시 후 시도해주세요.");
+        this.name = "ConnectionError";
+      }
+    }
+
+    /**
+     * fetch를 감싸서 "서버 자체에 닿지 못한 경우"(네트워크 예외, 5xx 응답)를
+     * ConnectionError로 통일해서 던진다. 4xx처럼 서버가 정상적으로 응답한
+     * 검증 오류 등은 그대로 통과시켜 호출부에서 세부 메시지를 사용할 수 있게 한다.
+     */
+    async function safeFetch(url, options) {
+      let res;
+      try {
+        res = await fetch(url, options);
+      } catch (networkErr) {
+        // 서버에 연결 자체가 안 되는 경우 (타임아웃, DNS 실패, 오프라인 등)
+        console.error("[network]", networkErr);
+        throw new ConnectionError();
+      }
+      if (res.status >= 500) {
+        // 서버는 응답했지만 내부적으로 문제가 있는 경우 (Flask 연결 실패/재시작, OOM 등)
+        console.error("[server]", res.status, url);
+        throw new ConnectionError();
+      }
+      return res;
+    }
+
     let selectedGoalValue = 'weight_loss';
     let isCustomWeightActive = false;
     let chatHistory = [];
@@ -548,7 +581,7 @@
         // 1. 여러 장을 한 번에 인식 요청 (파일마다 별도 제품으로 처리됨)
         const form = new FormData();
         activeSlots.forEach((s) => form.append("images", s.file));
-        const extractRes = await fetch(EXTRACT_PATH, { method: "POST", body: form });
+        const extractRes = await safeFetch(EXTRACT_PATH, { method: "POST", body: form });
         if (!extractRes.ok) throw new Error(`사진 인식에 실패했습니다 (${extractRes.status})`);
         const batch = await extractRes.json();
 
@@ -595,7 +628,7 @@
         await runScoring('step-2');
       } catch (err) {
         console.error(err);
-        alert("❌ " + err.message);
+        alert(err instanceof ConnectionError ? err.message : "❌ " + err.message);
         document.getElementById('step-loading').classList.add('hidden');
         document.getElementById('step-2').classList.remove('hidden');
       }
@@ -628,7 +661,7 @@
       }
 
       // 2. 스코어링 요청
-      const scoreRes = await fetch(RECOMMEND_PATH, {
+      const scoreRes = await safeFetch(RECOMMEND_PATH, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -815,7 +848,7 @@
         await runScoring('step-result');
       } catch (err) {
         console.error(err);
-        alert("❌ " + err.message);
+        alert(err instanceof ConnectionError ? err.message : "❌ " + err.message);
         document.getElementById('step-loading').classList.add('hidden');
         document.getElementById('step-result').classList.remove('hidden');
       }
