@@ -54,8 +54,9 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-// Node 서버가 /api/recommend에서 Flask(:5000)로 프록시해주므로, 브라우저는 항상 같은 origin(상대경로)만 호출한다.
-const SCORING_PATH = "/api/recommend";
+
+const API_BASE = "https://nutrition-vision.onrender.com";
+const SCORING_PATH = `${API_BASE}/api/recommend`;
 
 $("run").addEventListener("click", async () => {
   const files = $("files").files;
@@ -71,7 +72,7 @@ $("run").addEventListener("click", async () => {
     // 1. OCR 판독 — 파일마다 별도 제품으로 처리됨
     const form = new FormData();
     for (const f of files) form.append("images", f);
-    const extractRes = await fetch("/api/extract/batch", { method: "POST", body: form });
+    const extractRes = await fetch(`${API_BASE}/api/extract/batch`, { method: "POST", body: form });
     if (!extractRes.ok) throw new Error(`extract 실패: ${extractRes.status}`);
     const batch = await extractRes.json();
 
