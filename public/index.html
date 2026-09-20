@@ -1,179 +1,694 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8" />
-<title>OCR + 스코어링 통합 테스트</title>
-<style>
-  body { font-family: -apple-system, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #1a1a1a; }
-  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 32px; }
-  .box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin: 12px 0; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
-  button { padding: 8px 16px; border-radius: 6px; border: 1px solid #333; background: #111; color: #fff; cursor: pointer; }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
-  td, th { border: 1px solid #eee; padding: 6px 8px; text-align: right; }
-  th:first-child, td:first-child { text-align: left; }
-  .ok { color: #0a7d2c; } .needs_review { color: #b8860b; } .failed { color: #c0392b; }
-  .rank1 { background: #eafbea; font-weight: bold; }
-  .muted { color: #888; font-size: 12px; }
-  select, input[type=text] { padding: 6px; }
-  pre { background: #fafafa; padding: 10px; border-radius: 6px; font-size: 11px; max-height: 200px; overflow: auto; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScanD - AI 영양성분 & 가성비 비교</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    input[type=range] {
+      accent-color: #10b981;
+    }
+  </style>
 </head>
-<body>
+<body class="bg-gray-100 min-h-screen flex justify-center">
 
-<h1>🧪 OCR → 스코어링 통합 테스트</h1>
-<p class="muted">
-  사진 2~3장(제품별 1장씩)을 올리면 각 사진을 <code>/api/extract/batch</code>로 판독하고,
-  결과를 <code>/api/recommend</code>(Node → Flask 프록시)에 넘겨 목표별 순위를 매깁니다. 프로덕션 UI가 아니라 파이프라인 검증용입니다.
-</p>
+  <!-- 모바일 뷰포트 래퍼 -->
+  <div class="w-full max-w-[480px] min-h-dvh bg-white shadow-xl flex flex-col justify-between relative p-4">
+    
+    <!-- 헤더 -->
+    <header class="py-3 border-b flex justify-between items-center shrink-0">
+      <h1 class="text-xl font-bold text-emerald-600 flex items-center gap-1">
+        🥗 ScanD
+      </h1>
+      <span class="text-xs text-gray-400 font-medium">매대 맞춤 비교</span>
+    </header>
 
-<div class="box">
-  <div class="row">
-    <input type="file" id="files" multiple accept="image/*" />
+    <!-- ==================== SCREEN 1: [1단계] 항목 선택 + 자유 서술 요청 ==================== -->
+    <div id="step-1" class="flex-1 flex flex-col justify-between py-3 overflow-y-auto">
+      <div class="flex flex-col gap-5">
+        
+        <!-- 단계 표시 안내 -->
+        <div class="flex items-center justify-between text-xs font-bold text-gray-500 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+          <span class="text-emerald-600">STEP 1. 영양 기준 & 요청 입력</span>
+          <span class="text-gray-400">1 / 2 단계</span>
+        </div>
+
+        <!-- 1. 복합 영양 기준 니즈 선택 (4가지) -->
+        <section>
+          <div class="flex justify-between items-center mb-2.5">
+            <label class="text-xs font-bold text-gray-800">🎯 이번 구매에서 가장 중요한 기준은 무엇인가요?</label>
+            <button onclick="openWeightModal()" class="text-[11px] text-emerald-600 font-bold flex items-center gap-1 hover:underline">
+              ⚙️ 가중치 설정
+            </button>
+          </div>
+          
+          <!-- 4가지 선택지 (2x2) -->
+          <div class="grid grid-cols-2 gap-2.5" id="goal-container">
+            <!-- 체중감량 -->
+            <button onclick="selectGoal(this, 'weight_loss')" class="goal-btn border-2 border-emerald-500 bg-emerald-50 text-emerald-700 font-bold p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px] shadow-sm">
+              <div class="flex items-center gap-1 text-xs">🏋️‍♂️ 체중감량</div>
+              <div class="text-[10px] text-emerald-600 font-normal">저칼로리 · 고단백 · 저당</div>
+            </button>
+
+            <!-- 가성비 근성장 -->
+            <button onclick="selectGoal(this, 'muscle')" class="goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]">
+              <div class="flex items-center gap-1 text-xs font-bold">💪 가성비 근성장</div>
+              <div class="text-[10px] text-gray-400 font-normal">고단백 · g당 최저가</div>
+            </button>
+
+            <!-- 혈당 케어 -->
+            <button onclick="selectGoal(this, 'blood_sugar')" class="goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]">
+              <div class="flex items-center gap-1 text-xs font-bold">🩸 혈당 케어</div>
+              <div class="text-[10px] text-gray-400 font-normal">최저 당류 · 저탄수화물</div>
+            </button>
+
+            <!-- 붓기 방지 -->
+            <button onclick="selectGoal(this, 'anti_swelling')" class="goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]">
+              <div class="flex items-center gap-1 text-xs font-bold">💧 붓기 방지</div>
+              <div class="text-[10px] text-gray-400 font-normal">저나트륨 · 저당 · 저지방</div>
+            </button>
+          </div>
+          
+          <p id="custom-weight-badge" class="hidden text-[11px] text-emerald-600 font-medium mt-2 bg-emerald-50 p-1.5 rounded-lg text-center border border-emerald-200">
+            ✨ 커스텀 가중치가 적용되어 있습니다.
+          </p>
+        </section>
+
+        <!-- 2. 자유 서술 요청 -->
+        <section class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 flex flex-col gap-2.5">
+          <label class="text-xs font-bold text-gray-800 flex items-center gap-1">
+            💬 추가 조건이 있다면 알려주세요
+          </label>
+          
+          <div id="chat-messages" class="bg-white border rounded-xl p-3 max-h-[120px] overflow-y-auto space-y-2 text-xs shadow-inner">
+            <div class="flex items-start gap-1.5">
+              <span class="text-base">🤖</span>
+              <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">
+                안녕하세요! "유당불내증 있음", "콜레스테롤 10mg 이하" 등 특이사항이나 선호 조건을 자유롭게 적어주세요!
+              </p>
+            </div>
+          </div>
+
+          <div class="flex gap-1.5">
+            <input type="text" id="user-chat-input" placeholder="예: 콜레스테롤 낮은 순서 위주" class="flex-1 text-xs p-2.5 border rounded-xl bg-white focus:outline-none focus:border-emerald-500">
+            <button onclick="sendChatMessage()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs transition shrink-0">
+              전송
+            </button>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- 다음 스크린 이동 버튼 -->
+      <button onclick="goToStep2()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl text-base shadow-lg transition mt-4 flex items-center justify-center gap-2">
+        <span>다음 (제품 촬영하기)</span>
+        <span>📸</span>
+      </button>
+    </div>
+
+    <!-- ==================== SCREEN 2: [2단계] 제품 라벨 촬영 & 가격 입력 ==================== -->
+    <div id="step-2" class="hidden flex-1 flex flex-col justify-between py-3 overflow-y-auto">
+      <div class="flex flex-col gap-4">
+        
+        <!-- 상단 헤더 & 이전 버튼 -->
+        <div class="flex items-center justify-between border-b pb-2.5">
+          <button onclick="goToStep1()" class="text-xs font-bold text-gray-500 hover:text-gray-800 flex items-center gap-1">
+            <span>←</span> 이전 단계
+          </button>
+          <span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+            STEP 2. 제품 촬영 (2/2)
+          </span>
+        </div>
+
+        <section class="flex-1 flex flex-col">
+          <label class="block text-xs font-bold text-gray-800 mb-1">📸 비교할 제품 라벨 촬영 및 가격 입력</label>
+          <p class="text-[11px] text-gray-400 mb-3">최소 2개 이상 등록하시면 AI가 완벽하게 분석해드립니다.</p>
+          
+          <div class="grid grid-cols-2 gap-2.5">
+            <!-- 제품 A -->
+            <div class="border rounded-2xl p-2.5 bg-gray-50 flex flex-col gap-1.5 shadow-sm">
+              <div class="border-2 border-dashed border-gray-300 rounded-xl p-2 flex flex-col items-center justify-center relative bg-white min-h-[80px]">
+                <input type="file" accept="image/*" capture="environment" onchange="previewImage(event, 0)" class="absolute inset-0 opacity-0 cursor-pointer">
+                <div id="preview-0" class="text-center">
+                  <span class="text-lg">📷</span>
+                  <p class="text-[10px] text-gray-400 font-medium">라벨 촬영/업로드</p>
+                </div>
+              </div>
+              <input type="text" id="name-0" placeholder="제품 A 이름" class="w-full text-xs p-1.5 border rounded-lg bg-white">
+              <div class="relative">
+                <input type="number" id="price-0" placeholder="가격" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
+                <span class="absolute right-2 top-1.5 text-xs text-gray-400">원</span>
+              </div>
+            </div>
+
+            <!-- 제품 B -->
+            <div class="border rounded-2xl p-2.5 bg-gray-50 flex flex-col gap-1.5 shadow-sm">
+              <div class="border-2 border-dashed border-gray-300 rounded-xl p-2 flex flex-col items-center justify-center relative bg-white min-h-[80px]">
+                <input type="file" accept="image/*" capture="environment" onchange="previewImage(event, 1)" class="absolute inset-0 opacity-0 cursor-pointer">
+                <div id="preview-1" class="text-center">
+                  <span class="text-lg">📷</span>
+                  <p class="text-[10px] text-gray-400 font-medium">라벨 촬영/업로드</p>
+                </div>
+              </div>
+              <input type="text" id="name-1" placeholder="제품 B 이름" class="w-full text-xs p-1.5 border rounded-lg bg-white">
+              <div class="relative">
+                <input type="number" id="price-1" placeholder="가격" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
+                <span class="absolute right-2 top-1.5 text-xs text-gray-400">원</span>
+              </div>
+            </div>
+
+            <!-- 제품 C -->
+            <div class="border rounded-2xl p-2.5 bg-gray-50 flex flex-col gap-1.5 shadow-sm">
+              <div class="border-2 border-dashed border-gray-300 rounded-xl p-2 flex flex-col items-center justify-center relative bg-white min-h-[80px]">
+                <input type="file" accept="image/*" capture="environment" onchange="previewImage(event, 2)" class="absolute inset-0 opacity-0 cursor-pointer">
+                <div id="preview-2" class="text-center">
+                  <span class="text-lg">📷</span>
+                  <p class="text-[10px] text-gray-400 font-medium">라벨 촬영/업로드</p>
+                </div>
+              </div>
+              <input type="text" id="name-2" placeholder="제품 C 이름" class="w-full text-xs p-1.5 border rounded-lg bg-white">
+              <div class="relative">
+                <input type="number" id="price-2" placeholder="가격" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
+                <span class="absolute right-2 top-1.5 text-xs text-gray-400">원</span>
+              </div>
+            </div>
+
+            <!-- 제품 D -->
+            <div class="border rounded-2xl p-2.5 bg-gray-50 flex flex-col gap-1.5 shadow-sm">
+              <div class="border-2 border-dashed border-gray-300 rounded-xl p-2 flex flex-col items-center justify-center relative bg-white min-h-[80px]">
+                <input type="file" accept="image/*" capture="environment" onchange="previewImage(event, 3)" class="absolute inset-0 opacity-0 cursor-pointer">
+                <div id="preview-3" class="text-center">
+                  <span class="text-lg">📷</span>
+                  <p class="text-[10px] text-gray-400 font-medium">라벨 촬영/업로드</p>
+                </div>
+              </div>
+              <input type="text" id="name-3" placeholder="제품 D 이름" class="w-full text-xs p-1.5 border rounded-lg bg-white">
+              <div class="relative">
+                <input type="number" id="price-3" placeholder="가격" class="w-full text-xs p-1.5 pr-6 border rounded-lg bg-white font-bold text-emerald-800">
+                <span class="absolute right-2 top-1.5 text-xs text-gray-400">원</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- 최종 제출 및 분석 버튼 -->
+      <button onclick="startAnalysis()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl text-base shadow-lg transition mt-4">
+        영양성분 & 가성비 비교하기
+      </button>
+    </div>
+
+    <!-- ==================== STEP 3: AI 로딩 화면 ==================== -->
+    <div id="step-loading" class="hidden flex-1 flex flex-col items-center justify-center gap-4 text-center">
+      <div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+      <div>
+        <h3 class="font-bold text-gray-800 text-lg">AI 종합 비교 분석 진행 중</h3>
+        <p class="text-xs text-gray-500 mt-1">당류, 콜레스테롤, 가성비 지표를 다각도로 계산합니다...</p>
+      </div>
+    </div>
+
+    <!-- ==================== STEP 4: 비교 결과 화면 ==================== -->
+    <div id="step-result" class="hidden flex-1 flex flex-col gap-4 py-2 overflow-y-auto">
+      <div class="bg-gradient-to-r from-emerald-500 to-teal-600 text-white p-4 rounded-2xl shadow-md relative">
+        <span class="bg-yellow-400 text-yellow-950 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase">👑 Best Pick</span>
+        <h2 id="winner-title" class="text-xl font-bold mt-1"></h2>
+        <p id="winner-reason" class="text-xs mt-2 bg-black/10 p-2.5 rounded-lg leading-relaxed"></p>
+      </div>
+
+      <section>
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="text-sm font-bold text-gray-700">영양성분 & 가성비 상세 비교</h3>
+          <span class="text-[10px] text-gray-400">옆으로 스크롤 👉</span>
+        </div>
+        <div class="overflow-x-auto border rounded-xl shadow-sm">
+          <table class="w-full text-xs text-center min-w-[420px]">
+            <thead class="bg-gray-50 border-b text-gray-600">
+              <tr id="table-head-row">
+                <th class="p-2 text-left sticky left-0 bg-gray-50 z-10 border-r">항목</th>
+              </tr>
+            </thead>
+            <tbody id="table-body" class="divide-y text-gray-700">
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="flex gap-2 mt-auto pt-2">
+        <button onclick="openEditModal()" class="flex-1 border border-gray-300 text-gray-600 font-medium py-2.5 rounded-xl text-xs flex items-center justify-center gap-1">
+          ✏️ 성분 인식 수정
+        </button>
+        <button onclick="resetApp()" class="flex-1 bg-gray-800 text-white font-bold py-2.5 rounded-xl text-xs">
+          처음부터 비교하기
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL 1: 직접 가중치 설정 모달 ==================== -->
+    <div id="modal-weight" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-3xl p-6 w-full max-w-[360px] flex flex-col gap-5 shadow-2xl relative">
+        <button onclick="closeWeightModal()" class="absolute top-5 right-5 text-gray-400 hover:text-gray-600 text-lg font-bold">✕</button>
+        <div>
+          <h3 class="text-xl font-bold text-gray-900">직접 가중치 설정</h3>
+          <p class="text-xs text-gray-500 mt-1">항목별 중요도를 조절하면 점수 계산에 반영됩니다.</p>
+        </div>
+        <div class="space-y-3">
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-xs font-bold text-gray-800">칼로리</span>
+              <span id="val-calorie" class="text-xs font-bold text-emerald-500">15%</span>
+            </div>
+            <input type="range" id="range-calorie" min="0" max="100" value="15" oninput="updateSliderVal('calorie', this.value)" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-xs font-bold text-gray-800">단백질</span>
+              <span id="val-protein" class="text-xs font-bold text-emerald-500">40%</span>
+            </div>
+            <input type="range" id="range-protein" min="0" max="100" value="40" oninput="updateSliderVal('protein', this.value)" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-xs font-bold text-gray-800">당류</span>
+              <span id="val-sugar" class="text-xs font-bold text-emerald-500">25%</span>
+            </div>
+            <input type="range" id="range-sugar" min="0" max="100" value="25" oninput="updateSliderVal('sugar', this.value)" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-xs font-bold text-gray-800">나트륨</span>
+              <span id="val-sodium" class="text-xs font-bold text-emerald-500">10%</span>
+            </div>
+            <input type="range" id="range-sodium" min="0" max="100" value="10" oninput="updateSliderVal('sodium', this.value)" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-xs font-bold text-gray-800">가격</span>
+              <span id="val-cost" class="text-xs font-bold text-emerald-500">10%</span>
+            </div>
+            <input type="range" id="range-cost" min="0" max="100" value="10" oninput="updateSliderVal('cost', this.value)" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+          </div>
+        </div>
+        <button onclick="applyCustomWeights()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-2xl text-sm transition shadow-md mt-1">
+          가중치 적용
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL 2: 전체 제품 인식 보정 모달 ==================== -->
+    <div id="modal-edit" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl p-5 w-full max-w-[420px] flex flex-col gap-3 shadow-2xl relative max-h-[88vh]">
+        <div class="flex justify-between items-center border-b pb-2">
+          <div>
+            <h3 class="font-bold text-base text-gray-800">전체 제품 데이터 수동 보정</h3>
+            <p class="text-[11px] text-gray-500">오인식된 성분 수치나 가격을 직접 수정하세요.</p>
+          </div>
+          <button onclick="closeEditModal()" class="text-gray-400 hover:text-gray-600 font-bold text-lg">✕</button>
+        </div>
+        
+        <div id="edit-modal-products-list" class="space-y-4 text-xs overflow-y-auto pr-1 flex-1 my-1">
+          <!-- JS에서 동적 세부 입력 폼 랜더링 -->
+        </div>
+
+        <button onclick="saveEditedData()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-xs mt-1 shadow">
+          수정 완료 및 표 업데이트
+        </button>
+      </div>
+    </div>
+
   </div>
-  <div class="row">
-    <label>비교 목표:
-      <select id="goal">
-        <option value="weight_loss">🏋️‍♂️ 체중감량 (저칼로리·고단백·저당)</option>
-        <option value="muscle">💪 가성비 근성장 (고단백·g당 최저가)</option>
-        <option value="blood_sugar">🩸 혈당 케어 (최저 당류·저탄수화물)</option>
-        <option value="anti_swelling">💧 붓기 방지 (저나트륨·저당·저지방)</option>
-      </select>
-    </label>
-  </div>
-  <div class="row">
-    <button id="run">① 인식 + 스코어링 실행</button>
-    <span id="status" class="muted"></span>
-  </div>
-</div>
 
-<div id="extractResult"></div>
-<div id="scoreResult"></div>
-<div id="rawResult"></div>
+  <script>
+    // 프론트(Netlify)와 백엔드(Render)가 다른 도메인이므로 절대 주소 사용.
+    // 백엔드 도메인이 바뀌면 이 한 줄만 수정하면 됩니다.
+    const API_BASE = "https://nutrition-vision.onrender.com";
+    const EXTRACT_PATH = `${API_BASE}/api/extract/batch`;
+    const RECOMMEND_PATH = `${API_BASE}/api/recommend`;
 
-<script>
-const $ = (id) => document.getElementById(id);
+    let selectedGoalValue = 'weight_loss';
+    let isCustomWeightActive = false;
+    let chatHistory = [];
+    let customWeights = { calorie: 0.15, protein: 0.40, sugar: 0.25, sodium: 0.10, cost: 0.10 };
 
-const API_BASE = "https://nutrition-vision.onrender.com";
-const SCORING_PATH = `${API_BASE}/api/recommend`;
+    // 슬롯(0~3)별로 실제 업로드된 File 객체를 보관 (분석 시 서버로 전송)
+    const uploadedFiles = [null, null, null, null];
 
-$("run").addEventListener("click", async () => {
-  const files = $("files").files;
-  if (!files.length) { alert("사진을 최소 1장 선택하세요."); return; }
+    // 분석 완료 후 화면에 표시할 실제 제품 데이터. 더미 대신 API 응답으로 채워집니다.
+    let products = [];
 
-  $("run").disabled = true;
-  $("status").textContent = "① OCR 판독 중... (Gemini 호출, 수 초 소요)";
-  $("extractResult").innerHTML = "";
-  $("scoreResult").innerHTML = "";
-  $("rawResult").innerHTML = "";
-
-  try {
-    // 1. OCR 판독 — 파일마다 별도 제품으로 처리됨
-    const form = new FormData();
-    for (const f of files) form.append("images", f);
-    const extractRes = await fetch(`${API_BASE}/api/extract/batch`, { method: "POST", body: form });
-    if (!extractRes.ok) throw new Error(`extract 실패: ${extractRes.status}`);
-    const batch = await extractRes.json();
-
-    renderExtract(batch);
-
-    // 2. 스코어링에 넘길 products 구성.
-    //    라벨의 원래 표시 기준(1회 제공량/총 내용량/100g)이 제품마다 달라도 상관없다.
-    //    per100(100g/ml당 환산값)은 normalize.js가 각 제품별로 독립적으로 계산해두는 값이라
-    //    "다른 제품도 이 기준을 갖고 있는지" 따질 필요가 없다 — 애초에 포장 크기가 다른 제품끼리
-    //    공정하게 비교하려고 만든 필드가 per100이다. score_products()의 가중치 계산은
-    //    "숫자가 어떤 단위인지" 모르고 그냥 비교하므로, 비교 기준을 통일하는 건 여기(클라이언트)의 책임이다.
-    const usable = batch.products.filter((p) => p.status !== "failed" && p.normalized?.per100);
-    const excluded = batch.products.filter((p) => !usable.includes(p));
-
-    const products = usable.map((p, i) => ({
-      name: p.product?.name || `제품 ${i + 1} (사진: ${p.filename})`,
-      nutrients: p.normalized.per100,
-    }));
-
-    if (products.length < 2) {
-      const reasons = excluded.map((p) =>
-        `${p.filename}: ${p.status === "failed" ? "판독 실패" : "100g/ml당 환산 불가 (기준 단위 또는 중량 미판독)"}`
-      );
-      $("status").innerHTML =
-        `⚠️ 스코어링 생략 — 100g/ml당으로 환산 가능한 제품이 2개 미만입니다.<br/>` +
-        reasons.map((r) => `· ${r}`).join("<br/>");
-    } else {
-      if (excluded.length) {
-        $("status").innerHTML = excluded.map((p) => `· ${p.filename} 제외됨 (환산 불가)`).join("<br/>") + "<br/>";
-      }
-      $("status").innerHTML += "② 스코어링 중...";
-      const scoreRes = await fetch(SCORING_PATH, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ products, goal: $("goal").value }),
-      });
-      if (!scoreRes.ok) {
-        const err = await scoreRes.json().catch(() => ({}));
-        throw new Error(`recommend 실패: ${scoreRes.status} ${err.error || ""}`);
-      }
-      const scored = await scoreRes.json();
-      renderScore(scored);
-      $("status").textContent = "완료 (100g/ml당 기준)";
+    // 화면 전환 함수
+    function goToStep2() {
+      document.getElementById('step-1').classList.add('hidden');
+      document.getElementById('step-2').classList.remove('hidden');
     }
 
-    $("rawResult").innerHTML = `<h2>원본 응답 (디버그용)</h2><pre>${JSON.stringify(batch, null, 2)}</pre>`;
-  } catch (err) {
-    console.error(err);
-    $("status").textContent = "❌ " + err.message;
-  } finally {
-    $("run").disabled = false;
-  }
-});
+    function goToStep1() {
+      document.getElementById('step-2').classList.add('hidden');
+      document.getElementById('step-1').classList.remove('hidden');
+    }
 
-function renderExtract(batch) {
-  const rows = batch.products.map((p, i) => {
-    const n = p.normalized?.per100;
-    const basisNote = p.raw?.basis === "unknown" || !p.raw?.basis ? "기준 미판독" : p.raw.basis;
-    return `<tr>
-      <td>${p.product?.name ?? "(이름 미판독)"}<div class="muted">${p.filename} · ${basisNote}${n ? "" : " · 100g환산 불가"}</div></td>
-      <td class="${p.status}">${p.status}</td>
-      <td>${(p.confidence ?? 0).toFixed(2)}</td>
-      <td>${n ? n.calorie ?? "-" : "-"}</td>
-      <td>${n ? n.sugar ?? "-" : "-"}</td>
-      <td>${n ? n.sodium ?? "-" : "-"}</td>
-      <td>${n ? n.protein ?? "-" : "-"}</td>
-      <td>${(p.issues ?? []).map((iss) => iss.message).join("<br/>") || "-"}</td>
-    </tr>`;
-  }).join("");
+    function selectGoal(element, goal) {
+      selectedGoalValue = goal;
+      isCustomWeightActive = false;
+      document.getElementById('custom-weight-badge').classList.add('hidden');
+      
+      document.querySelectorAll('.goal-btn').forEach(btn => {
+        btn.className = 'goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]';
+        const descDiv = btn.querySelector('div:last-child');
+        if (descDiv) descDiv.className = 'text-[10px] text-gray-400 font-normal';
+      });
 
-  $("extractResult").innerHTML = `
-    <h2>① OCR 판독 결과 <span class="muted">(100g/ml당 환산 — ②의 스코어링과 동일 기준)</span></h2>
-    <div class="box">
-      <table>
-        <thead><tr><th>제품 (기준)</th><th>상태</th><th>신뢰도</th><th>열량</th><th>당류</th><th>나트륨</th><th>단백질</th><th>이슈</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <p class="muted">요약: 총 ${batch.summary.total} · 정상 ${batch.summary.ok} · 확인필요 ${batch.summary.needsReview} · 실패 ${batch.summary.failed} · 비교가능 ${batch.summary.comparable}</p>
-    </div>`;
-}
+      element.className = 'goal-btn border-2 border-emerald-500 bg-emerald-50 text-emerald-700 font-bold p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px] shadow-sm';
+      const descDiv = element.querySelector('div:last-child');
+      if (descDiv) descDiv.className = 'text-[10px] text-emerald-600 font-normal';
+    }
 
-function renderScore(scored) {
-  const rows = scored.ranked.map((r, i) => `
-    <tr class="${i === 0 ? "rank1" : ""}">
-      <td>${i + 1}위</td>
-      <td>${r.name}</td>
-      <td>${r.score.toFixed(3)}</td>
-      <td>${Object.entries(r.breakdown).map(([k, v]) => `${k}:${v}`).join(", ")}</td>
-    </tr>`).join("");
+    function sendChatMessage() {
+      const input = document.getElementById('user-chat-input');
+      const text = input.value.trim();
+      if (!text) return;
 
-  $("scoreResult").innerHTML = `
-    <h2>② 스코어링 결과 <span class="muted">(비교 기준: 100g/ml당)</span></h2>
-    <div class="box">
-      <table>
-        <thead><tr><th>순위</th><th>제품</th><th>점수</th><th>항목별 기여도</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <p><strong>💬 ${scored.recommendation}</strong></p>
-      <p class="muted">사용된 가중치: ${JSON.stringify(scored.weights_used)}</p>
-    </div>`;
-}
-</script>
+      const chatBox = document.getElementById('chat-messages');
+      chatHistory.push(text);
+
+      chatBox.innerHTML += `
+        <div class="flex items-start justify-end gap-1.5">
+          <p class="bg-gray-800 text-white p-2 rounded-lg leading-relaxed text-[11px] max-w-[80%]">${text}</p>
+          <span class="text-base">👤</span>
+        </div>
+      `;
+
+      chatBox.innerHTML += `
+        <div class="flex items-start gap-1.5">
+          <span class="text-base">🤖</span>
+          <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">
+            접수되었습니다! "${text}" 조건은 분석 시 반영됩니다.
+          </p>
+        </div>
+      `;
+
+      input.value = '';
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function updateSliderVal(key, val) {
+      document.getElementById(`val-${key}`).innerText = `${val}%`;
+      customWeights[key] = Number(val) / 100;
+    }
+
+    function applyCustomWeights() {
+      isCustomWeightActive = true;
+      document.querySelectorAll('.goal-btn').forEach(btn => {
+        btn.className = 'goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]';
+      });
+      document.getElementById('custom-weight-badge').classList.remove('hidden');
+      closeWeightModal();
+    }
+
+    function openWeightModal() { document.getElementById('modal-weight').classList.remove('hidden'); }
+    function closeWeightModal() { document.getElementById('modal-weight').classList.add('hidden'); }
+
+    function previewImage(event, slot) {
+      const file = event.target.files[0];
+      if (!file) return;
+      uploadedFiles[slot] = file;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById(`preview-${slot}`).innerHTML = `<img src="${e.target.result}" class="h-16 w-full object-cover rounded-lg">`;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function startAnalysis() {
+      const activeSlots = uploadedFiles
+        .map((file, idx) => ({ file, idx }))
+        .filter((s) => s.file);
+
+      if (activeSlots.length < 2) {
+        alert("사진을 최소 2개 이상 등록해주세요.");
+        return;
+      }
+
+      document.getElementById('step-2').classList.add('hidden');
+      document.getElementById('step-loading').classList.remove('hidden');
+
+      try {
+        // 1. 여러 장을 한 번에 인식 요청 (파일마다 별도 제품으로 처리됨)
+        const form = new FormData();
+        activeSlots.forEach((s) => form.append("images", s.file));
+        const extractRes = await fetch(EXTRACT_PATH, { method: "POST", body: form });
+        if (!extractRes.ok) throw new Error(`사진 인식에 실패했습니다 (${extractRes.status})`);
+        const batch = await extractRes.json();
+
+        // 2. 인식 실패했거나 100g/ml당 환산이 안 되는 제품은 제외
+        const usable = batch.products
+          .map((p, i) => ({ p, slot: activeSlots[i].idx }))
+          .filter(({ p }) => p.status !== "failed" && p.normalized?.per100);
+
+        if (usable.length < 2) {
+          throw new Error("정상적으로 인식 가능한 제품이 2개 미만입니다. 라벨이 잘 보이게 다시 촬영해주세요.");
+        }
+
+        // 3. 사용자가 입력한 이름/가격을 결합. 영양소는 100g/ml당 값 기준으로 통일
+        products = usable.map(({ p, slot }, i) => {
+          const nameInput = document.getElementById(`name-${slot}`)?.value.trim();
+          const priceInput = Number(document.getElementById(`price-${slot}`)?.value) || 0;
+          const per100 = p.normalized.per100;
+          const packageGrams = p.normalized.meta?.packageGrams ?? null;
+          const perPackageProtein = p.normalized.perPackage?.protein ?? null;
+
+          return {
+            name: nameInput || p.product?.name || `제품 ${String.fromCharCode(65 + i)}`,
+            price: priceInput,
+            calorie: per100.calorie ?? 0,
+            protein: per100.protein ?? 0,
+            carb: per100.carb ?? 0,
+            sugar: per100.sugar ?? 0,
+            fat: per100.fat ?? 0,
+            sodium: per100.sodium ?? 0,
+            cholesterol: per100.cholesterol ?? 0,
+            // 100g당 가격 — 총 내용량(g)을 라벨에서 읽었을 때만 계산 가능
+            costPer100: packageGrams && priceInput ? priceInput / (packageGrams / 100) : null,
+            // 단백질 1g당 가격 — 총 내용량 기준 단백질 총량을 읽었을 때만 정확히 계산 가능
+            proteinCostBasis: perPackageProtein && priceInput ? priceInput / perPackageProtein : null,
+            isWinner: false,
+          };
+        });
+
+        // 4. 가중치 결정 — 커스텀 슬라이더 > 자유 서술 입력 > 목표 프리셋 순으로 우선 적용
+        //    (Scoring 서버의 custom_weights > health_text > goal 우선순위와 동일하게 맞춤)
+        const requestBody = { products: products.map(toScoringProduct) };
+        const allHaveCost = products.every((p) => p.costPer100 !== null);
+
+        if (isCustomWeightActive) {
+          const weights = { ...customWeights };
+          if (!allHaveCost) delete weights.cost; // 가격 환산이 안 되면 가중치에서 제외
+          requestBody.custom_weights = weights;
+        } else if (chatHistory.length) {
+          requestBody.health_text = chatHistory[chatHistory.length - 1];
+        } else {
+          requestBody.goal = selectedGoalValue;
+        }
+
+        // 5. 스코어링 요청
+        const scoreRes = await fetch(RECOMMEND_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
+        if (!scoreRes.ok) {
+          const err = await scoreRes.json().catch(() => ({}));
+          throw new Error(err.error || `비교 계산에 실패했습니다 (${scoreRes.status})`);
+        }
+        const scored = await scoreRes.json();
+
+        applyScoreResult(scored);
+
+        document.getElementById('step-loading').classList.add('hidden');
+        renderResultTable();
+        document.getElementById('step-result').classList.remove('hidden');
+      } catch (err) {
+        console.error(err);
+        alert("❌ " + err.message);
+        document.getElementById('step-loading').classList.add('hidden');
+        document.getElementById('step-2').classList.remove('hidden');
+      }
+    }
+
+    // scoring API가 기대하는 { name, nutrients } 형태로 변환
+    function toScoringProduct(p) {
+      const nutrients = {
+        calorie: p.calorie, protein: p.protein, carb: p.carb,
+        sugar: p.sugar, fat: p.fat, sodium: p.sodium, cholesterol: p.cholesterol,
+      };
+      if (p.costPer100 !== null) nutrients.cost = p.costPer100;
+      return { name: p.name, nutrients };
+    }
+
+    // API 응답(순위/추천 문구)을 products 배열과 상단 배너에 반영
+    function applyScoreResult(scored) {
+      const rankByName = new Map(scored.ranked.map((r, i) => [r.name, i]));
+      products.forEach((p) => { p.isWinner = rankByName.get(p.name) === 0; });
+
+      const winner = products.find((p) => p.isWinner) || products[0];
+      document.getElementById('winner-title').textContent = winner.name;
+      document.getElementById('winner-reason').textContent = scored.recommendation;
+    }
+
+    function renderResultTable() {
+      const headRow = document.getElementById('table-head-row');
+      const tbody = document.getElementById('table-body');
+
+      headRow.innerHTML = `<th class="p-2 text-left sticky left-0 bg-gray-50 z-10 border-r">항목</th>`;
+      products.forEach(p => {
+        const bgClass = p.isWinner ? 'bg-emerald-50 text-emerald-700 font-bold' : '';
+        headRow.innerHTML += `<th class="p-2 min-w-[85px] ${bgClass}">${p.name} ${p.isWinner ? '(1위)' : ''}</th>`;
+      });
+
+      tbody.innerHTML = `
+        <tr>
+          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">열량 <span class="text-[9px] text-gray-400">/100g</span></td>
+          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.calorie} kcal</td>`).join('')}
+        </tr>
+        <tr>
+          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">단백질 <span class="text-[9px] text-gray-400">/100g</span></td>
+          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.protein}g</td>`).join('')}
+        </tr>
+        <tr>
+          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">탄수화물 <span class="text-[9px] text-gray-400">/100g</span></td>
+          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.carb}g</td>`).join('')}
+        </tr>
+        <tr class="bg-red-50/40">
+          <td class="p-2 text-left font-medium text-red-900 sticky left-0 bg-red-50/60 z-10 border-r">└ 당류</td>
+          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.sugar}g</td>`).join('')}
+        </tr>
+        <tr>
+          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">지방 <span class="text-[9px] text-gray-400">/100g</span></td>
+          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.fat}g</td>`).join('')}
+        </tr>
+        <tr>
+          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">나트륨 <span class="text-[9px] text-gray-400">/100g</span></td>
+          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.sodium}mg</td>`).join('')}
+        </tr>
+        <tr>
+          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">콜레스테롤 <span class="text-[9px] text-gray-400">/100g</span></td>
+          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.cholesterol}mg</td>`).join('')}
+        </tr>
+        <tr>
+          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">판매가</td>
+          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.price ? p.price.toLocaleString() + '원' : '-'}</td>`).join('')}
+        </tr>
+        <tr class="bg-amber-50">
+          <td class="p-2 text-left font-bold text-amber-900 sticky left-0 bg-amber-50 z-10 border-r">단백질 1g당</td>
+          ${products.map(p => {
+            if (p.proteinCostBasis === null) return `<td class="p-2 text-amber-900">-</td>`;
+            const val = Math.round(p.proteinCostBasis);
+            return `<td class="p-2 ${p.isWinner ? 'font-bold text-emerald-700 bg-emerald-100' : 'text-amber-900'}">${val}원/g ${p.isWinner ? '🔥' : ''}</td>`;
+          }).join('')}
+        </tr>
+      `;
+    }
+
+    function openEditModal() {
+      const container = document.getElementById('edit-modal-products-list');
+      container.innerHTML = '';
+
+      products.forEach((p, idx) => {
+        container.innerHTML += `
+          <div class="border rounded-xl p-3 bg-gray-50 flex flex-col gap-2">
+            <div class="flex justify-between items-center border-b pb-1">
+              <span class="font-bold text-emerald-700 text-xs">제품 ${String.fromCharCode(65 + idx)} 세부 데이터</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div class="col-span-2">
+                <label class="text-[10px] text-gray-500">제품명</label>
+                <input type="text" id="edit-name-${idx}" value="${p.name}" class="w-full p-1 border rounded bg-white text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500">칼로리 (kcal/100g)</label>
+                <input type="number" id="edit-cal-${idx}" value="${p.calorie}" class="w-full p-1 border rounded bg-white text-xs text-right">
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500">단백질 (g/100g)</label>
+                <input type="number" id="edit-prot-${idx}" value="${p.protein}" class="w-full p-1 border rounded bg-white text-xs text-right">
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500">탄수화물 (g/100g)</label>
+                <input type="number" id="edit-carb-${idx}" value="${p.carb}" class="w-full p-1 border rounded bg-white text-xs text-right">
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500 text-red-600 font-bold">당류 (g/100g)</label>
+                <input type="number" step="0.1" id="edit-sug-${idx}" value="${p.sugar}" class="w-full p-1 border rounded bg-white text-xs text-right text-red-600 font-bold">
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500">지방 (g/100g)</label>
+                <input type="number" step="0.1" id="edit-fat-${idx}" value="${p.fat}" class="w-full p-1 border rounded bg-white text-xs text-right">
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500">나트륨 (mg/100g)</label>
+                <input type="number" id="edit-sod-${idx}" value="${p.sodium}" class="w-full p-1 border rounded bg-white text-xs text-right">
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500">콜레스테롤 (mg/100g)</label>
+                <input type="number" id="edit-chol-${idx}" value="${p.cholesterol}" class="w-full p-1 border rounded bg-white text-xs text-right">
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500">가격 (원)</label>
+                <input type="number" id="edit-price-${idx}" value="${p.price}" class="w-full p-1 border rounded bg-white text-xs text-right font-bold text-emerald-700">
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      document.getElementById('modal-edit').classList.remove('hidden');
+    }
+
+    function closeEditModal() { document.getElementById('modal-edit').classList.add('hidden'); }
+
+    function saveEditedData() {
+      products.forEach((p, idx) => {
+        p.name = document.getElementById(`edit-name-${idx}`).value || p.name;
+        p.calorie = Number(document.getElementById(`edit-cal-${idx}`).value) || 0;
+        p.protein = Number(document.getElementById(`edit-prot-${idx}`).value) || 0;
+        p.carb = Number(document.getElementById(`edit-carb-${idx}`).value) || 0;
+        p.sugar = Number(document.getElementById(`edit-sug-${idx}`).value) || 0;
+        p.fat = Number(document.getElementById(`edit-fat-${idx}`).value) || 0;
+        p.sodium = Number(document.getElementById(`edit-sod-${idx}`).value) || 0;
+        p.cholesterol = Number(document.getElementById(`edit-chol-${idx}`).value) || 0;
+        p.price = Number(document.getElementById(`edit-price-${idx}`).value) || 0;
+      });
+
+      renderResultTable();
+      closeEditModal();
+    }
+
+    function resetApp() {
+      document.getElementById('step-result').classList.add('hidden');
+      document.getElementById('step-2').classList.add('hidden');
+      document.getElementById('step-1').classList.remove('hidden');
+
+      uploadedFiles.fill(null);
+      [0, 1, 2, 3].forEach((slot) => {
+        document.getElementById(`preview-${slot}`).innerHTML =
+          `<span class="text-lg">📷</span><p class="text-[10px] text-gray-400 font-medium">라벨 촬영/업로드</p>`;
+        const nameEl = document.getElementById(`name-${slot}`);
+        if (nameEl) nameEl.value = '';
+        const priceEl = document.getElementById(`price-${slot}`);
+        if (priceEl) priceEl.value = '';
+      });
+
+      chatHistory = [];
+      document.getElementById('chat-messages').innerHTML = `
+        <div class="flex items-start gap-1.5">
+          <span class="text-base">🤖</span>
+          <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">
+            안녕하세요! "유당불내증 있음", "콜레스테롤 10mg 이하" 등 특이사항이나 선호 조건을 자유롭게 적어주세요!
+          </p>
+        </div>`;
+    }
+  </script>
 </body>
 </html>
