@@ -329,7 +329,25 @@
     let selectedGoalValue = 'weight_loss';
     let isCustomWeightActive = false;
     let chatHistory = [];
-    let customWeights = { calorie: 0.15, protein: 0.40, sugar: 0.25, sodium: 0.10, cost: 0.10 };
+
+    // 목표(goal) 버튼을 선택했을 때 "가중치 설정" 모달에 기본으로 채워줄 슬라이더 값(%).
+    // nutrition_scoring.py의 GOAL_WEIGHTS를 최대한 반영하되, 이 모달은 calorie/protein/sugar/sodium/cost
+    // 5개 슬라이더만 지원하므로 그 항목이 없는 프리셋(carb, fat)은 가장 가까운 항목에 합산해 근사한다.
+    //  - blood_sugar: 원래 sugar+carb 가중치 → carb 몫을 sugar에 합산
+    //  - anti_swelling: 원래 sodium+sugar+fat 가중치 → fat 몫을 sodium에 합산
+    const GOAL_SLIDER_PRESETS = {
+      weight_loss:   { calorie: 44, protein: 30, sugar: 26, sodium: 0,  cost: 0 },
+      muscle:        { calorie: 0,  protein: 50, sugar: 0,  sodium: 0,  cost: 50 },
+      blood_sugar:   { calorie: 0,  protein: 0,  sugar: 100, sodium: 0, cost: 0 },
+      anti_swelling: { calorie: 0,  protein: 0,  sugar: 33, sodium: 67, cost: 0 },
+    };
+
+    function presetToWeights(goal) {
+      const preset = GOAL_SLIDER_PRESETS[goal] ?? GOAL_SLIDER_PRESETS.weight_loss;
+      return Object.fromEntries(Object.entries(preset).map(([k, v]) => [k, v / 100]));
+    }
+
+    let customWeights = presetToWeights(selectedGoalValue);
 
     // 슬롯(0~3)별로 실제 업로드된 File 객체를 보관 (분석 시 서버로 전송)
     const uploadedFiles = [null, null, null, null];
@@ -365,6 +383,22 @@
       element.className = 'goal-btn border-2 border-emerald-500 bg-emerald-50 text-emerald-700 font-bold p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px] shadow-sm';
       const descDiv = element.querySelector('div:last-child');
       if (descDiv) descDiv.className = 'text-[10px] text-emerald-600 font-normal';
+
+      // 선택한 목표에 맞춰 "가중치 설정" 모달의 기본값도 함께 갱신
+      customWeights = presetToWeights(goal);
+      syncWeightSliders();
+    }
+
+    // customWeights 값을 슬라이더 UI(핸들 위치 + 퍼센트 표시)에 반영
+    function syncWeightSliders() {
+      Object.entries(customWeights).forEach(([key, frac]) => {
+        const range = document.getElementById(`range-${key}`);
+        const label = document.getElementById(`val-${key}`);
+        if (!range || !label) return;
+        const percent = Math.round(frac * 100);
+        range.value = percent;
+        label.textContent = `${percent}%`;
+      });
     }
 
     function sendChatMessage() {
@@ -409,7 +443,10 @@
       closeWeightModal();
     }
 
-    function openWeightModal() { document.getElementById('modal-weight').classList.remove('hidden'); }
+    function openWeightModal() {
+      syncWeightSliders();
+      document.getElementById('modal-weight').classList.remove('hidden');
+    }
     function closeWeightModal() { document.getElementById('modal-weight').classList.add('hidden'); }
 
     function previewImage(event, slot) {
@@ -680,6 +717,21 @@
       document.getElementById('step-2').classList.add('hidden');
       document.getElementById('step-1').classList.remove('hidden');
 
+      // 목표 선택 및 가중치도 초기 상태(체중감량)로 되돌림
+      selectedGoalValue = 'weight_loss';
+      isCustomWeightActive = false;
+      document.getElementById('custom-weight-badge').classList.add('hidden');
+      document.querySelectorAll('.goal-btn').forEach((btn, i) => {
+        const isFirst = i === 0; // 체중감량 버튼이 첫 번째
+        btn.className = isFirst
+          ? 'goal-btn border-2 border-emerald-500 bg-emerald-50 text-emerald-700 font-bold p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px] shadow-sm'
+          : 'goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]';
+        const descDiv = btn.querySelector('div:last-child');
+        if (descDiv) descDiv.className = isFirst ? 'text-[10px] text-emerald-600 font-normal' : 'text-[10px] text-gray-400 font-normal';
+      });
+      customWeights = presetToWeights(selectedGoalValue);
+      syncWeightSliders();
+
       uploadedFiles.fill(null);
       [0, 1, 2, 3].forEach((slot) => {
         document.getElementById(`preview-${slot}`).innerHTML =
@@ -699,6 +751,9 @@
           </p>
         </div>`;
     }
+
+    // 페이지 로드 시점에도 기본 선택된 목표(체중감량)에 맞춰 슬라이더 값을 미리 맞춰둔다
+    syncWeightSliders();
   </script>
 </body>
 </html>
