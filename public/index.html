@@ -22,6 +22,7 @@
       <h1 class="text-xl font-bold text-emerald-600 flex items-center gap-1">
         🥗 ScanDy
       </h1>
+      <span class="text-xs text-gray-400 font-medium">매대 맞춤 비교</span>
     </header>
 
     <!-- ==================== SCREEN 1: [1단계] 항목 선택 + 자유 서술 요청 ==================== -->
@@ -357,6 +358,10 @@
     // 이번 스코어링에 실제로 사용된 가중치 (결과 표 하이라이트 기준)
     let activeWeights = {};
 
+    // "단백질 1g당" 행은 '가성비 근성장' 프리셋을 선택해서 채점했을 때만 노출한다.
+    // (자유 서술이나 직접 가중치 설정, 다른 프리셋에서는 관련성이 낮아 행 자체를 숨김)
+    let showProteinCostRow = false;
+
     // 화면 전환 함수
     function goToStep2() {
       document.getElementById('step-1').classList.add('hidden');
@@ -533,10 +538,13 @@
           const weights = { ...customWeights };
           if (!allHaveCost) delete weights.cost; // 가격 환산이 안 되면 가중치에서 제외
           requestBody.custom_weights = weights;
+          showProteinCostRow = false;
         } else if (chatHistory.length) {
           requestBody.health_text = chatHistory[chatHistory.length - 1];
+          showProteinCostRow = false;
         } else {
           requestBody.goal = selectedGoalValue;
+          showProteinCostRow = selectedGoalValue === 'muscle';
         }
 
         // 5. 스코어링 요청
@@ -620,8 +628,18 @@
         headRow.innerHTML += `<th class="p-2 min-w-[85px] ${bgClass}">${p.name} ${p.isWinner ? '(1위)' : ''}</th>`;
       });
 
-      // cost(가성비) 가중치는 판매가/단백질1g당 지표와 관련이 있어 함께 하이라이트
-      const costActive = isActive('cost') || isActive('protein');
+      // "단백질 1g당"은 '가성비 근성장' 프리셋을 선택해서 채점했을 때만 의미가 있는
+      // 지표라, 그 경우에만 행 자체를 표에 넣는다 (다른 기준에서는 아예 숨김).
+      const proteinCostRow = showProteinCostRow
+        ? `<tr class="bg-blue-50/60">
+          <td class="p-2 text-left font-bold text-blue-900 sticky left-0 bg-blue-50/80 z-10 border-r">단백질 1g당 <span class="text-[9px] text-blue-500 font-bold">●기준반영</span></td>
+          ${products.map(p => {
+            if (p.proteinCostBasis === null) return `<td class="p-2 text-gray-500">-</td>`;
+            const val = Math.round(p.proteinCostBasis);
+            return `<td class="p-2 ${p.isWinner ? 'font-bold text-emerald-700 bg-emerald-100' : ''}">${val}원/g ${p.isWinner ? '🔥' : ''}</td>`;
+          }).join('')}
+        </tr>`
+        : '';
 
       tbody.innerHTML =
         renderNutrientRow('calorie', '열량', '/100g', p => `${p.calorie} kcal`) +
@@ -635,14 +653,7 @@
           <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">판매가</td>
           ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.price ? p.price.toLocaleString() + '원' : '-'}</td>`).join('')}
         </tr>` +
-        `<tr class="${costActive ? 'bg-blue-50/60' : ''}">
-          <td class="p-2 text-left ${costActive ? 'font-bold text-blue-900' : 'font-medium'} sticky left-0 ${costActive ? 'bg-blue-50/80' : 'bg-white'} z-10 border-r">단백질 1g당${costActive ? ' <span class="text-[9px] text-blue-500 font-bold">●기준반영</span>' : ''}</td>
-          ${products.map(p => {
-            if (p.proteinCostBasis === null) return `<td class="p-2 text-gray-500">-</td>`;
-            const val = Math.round(p.proteinCostBasis);
-            return `<td class="p-2 ${p.isWinner ? 'font-bold text-emerald-700 bg-emerald-100' : ''}">${val}원/g ${p.isWinner ? '🔥' : ''}</td>`;
-          }).join('')}
-        </tr>`;
+        proteinCostRow;
     }
 
     function openEditModal() {
@@ -673,8 +684,8 @@
                 <input type="number" id="edit-carb-${idx}" value="${p.carb}" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
-                <label class="text-[10px] text-gray-500 text-red-600 font-bold">당류 (g/100g)</label>
-                <input type="number" step="0.1" id="edit-sug-${idx}" value="${p.sugar}" class="w-full p-1 border rounded bg-white text-xs text-right text-red-600 font-bold">
+                <label class="text-[10px] text-gray-500">당류 (g/100g)</label>
+                <input type="number" step="0.1" id="edit-sug-${idx}" value="${p.sugar}" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">지방 (g/100g)</label>
@@ -727,6 +738,7 @@
       // 목표 선택 및 가중치도 초기 상태(체중감량)로 되돌림
       selectedGoalValue = 'weight_loss';
       isCustomWeightActive = false;
+      showProteinCostRow = false;
       document.getElementById('custom-weight-badge').classList.add('hidden');
       document.querySelectorAll('.goal-btn').forEach((btn, i) => {
         const isFirst = i === 0; // 체중감량 버튼이 첫 번째
