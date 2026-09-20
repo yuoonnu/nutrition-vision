@@ -195,7 +195,7 @@
 
       <!-- 최종 제출 및 분석 버튼 -->
       <button onclick="startAnalysis()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl text-base shadow-lg transition mt-4">
-        영양성분 인식하기
+        영양성분 & 가성비 비교하기
       </button>
     </div>
 
@@ -206,34 +206,6 @@
         <h3 class="font-bold text-gray-800 text-lg">AI 종합 비교 분석 진행 중</h3>
         <p class="text-xs text-gray-500 mt-1">당류, 콜레스테롤, 가성비 지표를 다각도로 계산합니다...</p>
       </div>
-    </div>
-
-    <!-- ==================== STEP 3.5: 영양성분 인식 결과 검토/수정 화면 ==================== -->
-    <div id="step-review" class="hidden flex-1 flex flex-col justify-between py-3 overflow-y-auto">
-      <div class="flex flex-col gap-3">
-        <div class="flex items-center justify-between border-b pb-2.5">
-          <button onclick="backToStep2FromReview()" class="text-xs font-bold text-gray-500 hover:text-gray-800 flex items-center gap-1">
-            <span>←</span> 다시 촬영
-          </button>
-          <span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-            인식 결과 확인
-          </span>
-        </div>
-
-        <div>
-          <label class="block text-xs font-bold text-gray-800 mb-1">🔍 인식된 영양성분이 맞는지 확인해주세요</label>
-          <p class="text-[11px] text-gray-400 mb-1">라벨과 다른 값이 있다면 아래에서 직접 수정할 수 있어요. (100g/ml 기준 값, 음수는 입력할 수 없어요)</p>
-        </div>
-
-        <div id="review-products-list" class="space-y-3 text-xs">
-          <!-- JS에서 제품별 인식 결과 입력폼 렌더링 -->
-        </div>
-      </div>
-
-      <button onclick="proceedToScoring()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl text-base shadow-lg transition mt-4 flex items-center justify-center gap-2">
-        <span>확인 완료, 비교 계속하기</span>
-        <span>✅</span>
-      </button>
     </div>
 
     <!-- ==================== STEP 4: 비교 결과 화면 ==================== -->
@@ -548,6 +520,9 @@
             fat: per100.fat ?? 0,
             sodium: per100.sodium ?? 0,
             cholesterol: per100.cholesterol ?? 0,
+            // 수정 화면에서 가격이 바뀔 때 100g당 가격/단백질당 가격을 다시 계산할 수 있도록 보관
+            packageGrams,
+            perPackageProtein,
             // 100g당 가격 — 총 내용량(g)을 라벨에서 읽었을 때만 계산 가능
             costPer100: packageGrams && priceInput ? priceInput / (packageGrams / 100) : null,
             // 단백질 1g당 가격 — 총 내용량 기준 단백질 총량을 읽었을 때만 정확히 계산 가능
@@ -556,11 +531,9 @@
           };
         });
 
-        // 4. 스코어링으로 바로 넘어가지 않고, 인식된 영양성분을 사용자가 먼저 확인/수정할 수 있는
-        //    검토 화면으로 이동한다. 스코어링은 사용자가 검토를 마친 뒤 proceedToScoring()에서 진행된다.
-        document.getElementById('step-loading').classList.add('hidden');
-        renderReviewScreen();
-        document.getElementById('step-review').classList.remove('hidden');
+        // 4~5. 가중치 결정 + 스코어링 요청은 runScoring()이 담당한다.
+        //      (결과 화면에서 데이터를 수정한 뒤 재채점할 때도 동일 로직을 재사용하기 위함)
+        await runScoring('step-2');
       } catch (err) {
         console.error(err);
         alert("❌ " + err.message);
@@ -569,127 +542,49 @@
       }
     }
 
-    // 인식된 영양성분(100g/ml 기준)을 제품별로 보여주고 수정할 수 있는 입력폼을 그린다.
-    function renderReviewScreen() {
-      const container = document.getElementById('review-products-list');
-      container.innerHTML = '';
+    /**
+     * 가중치 결정 -> /api/recommend 호출 -> 결과 반영/렌더링까지 수행하는 공통 스코어링 함수.
+     * products 배열이 최신 상태(사용자가 결과 화면에서 수정한 값 포함)라고 가정한다.
+     *
+     * @param {string} fallbackScreenId 스코어링 실패 시 되돌아갈 화면의 id
+     *   (최초 분석 실패 시 STEP2로, 결과 화면에서 수정 후 재채점 실패 시 결과 화면 그대로 복귀)
+     */
+    async function runScoring(fallbackScreenId) {
+      // 1. 가중치 결정 — 커스텀 슬라이더 > 자유 서술 입력 > 목표 프리셋 순으로 우선 적용
+      //    (Scoring 서버의 custom_weights > health_text > goal 우선순위와 동일하게 맞춤)
+      const requestBody = { products: products.map(toScoringProduct) };
+      const allHaveCost = products.every((p) => p.costPer100 !== null);
 
-      products.forEach((p, idx) => {
-        container.innerHTML += `
-          <div class="border rounded-2xl p-3 bg-gray-50 flex flex-col gap-2 shadow-sm">
-            <div class="flex justify-between items-center border-b pb-1.5">
-              <span class="font-bold text-emerald-700 text-xs">제품 ${String.fromCharCode(65 + idx)}</span>
-              <span class="text-[10px] text-gray-400">100g/ml 기준</span>
-            </div>
-            <div>
-              <label class="text-[10px] text-gray-500">제품명</label>
-              <input type="text" id="review-name-${idx}" value="${p.name}" class="w-full p-1.5 border rounded-lg bg-white text-xs mt-0.5">
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="text-[10px] text-gray-500">열량 (kcal)</label>
-                <input type="number" min="0" step="1" id="review-calorie-${idx}" value="${p.calorie}" oninput="preventNegative(this)" class="w-full p-1.5 border rounded-lg bg-white text-xs text-right mt-0.5">
-              </div>
-              <div>
-                <label class="text-[10px] text-gray-500">단백질 (g)</label>
-                <input type="number" min="0" step="0.1" id="review-protein-${idx}" value="${p.protein}" oninput="preventNegative(this)" class="w-full p-1.5 border rounded-lg bg-white text-xs text-right mt-0.5">
-              </div>
-              <div>
-                <label class="text-[10px] text-gray-500">탄수화물 (g)</label>
-                <input type="number" min="0" step="0.1" id="review-carb-${idx}" value="${p.carb}" oninput="preventNegative(this)" class="w-full p-1.5 border rounded-lg bg-white text-xs text-right mt-0.5">
-              </div>
-              <div>
-                <label class="text-[10px] text-gray-500">당류 (g)</label>
-                <input type="number" min="0" step="0.1" id="review-sugar-${idx}" value="${p.sugar}" oninput="preventNegative(this)" class="w-full p-1.5 border rounded-lg bg-white text-xs text-right mt-0.5">
-              </div>
-              <div>
-                <label class="text-[10px] text-gray-500">지방 (g)</label>
-                <input type="number" min="0" step="0.1" id="review-fat-${idx}" value="${p.fat}" oninput="preventNegative(this)" class="w-full p-1.5 border rounded-lg bg-white text-xs text-right mt-0.5">
-              </div>
-              <div>
-                <label class="text-[10px] text-gray-500">나트륨 (mg)</label>
-                <input type="number" min="0" step="1" id="review-sodium-${idx}" value="${p.sodium}" oninput="preventNegative(this)" class="w-full p-1.5 border rounded-lg bg-white text-xs text-right mt-0.5">
-              </div>
-              <div class="col-span-2">
-                <label class="text-[10px] text-gray-500">콜레스테롤 (mg)</label>
-                <input type="number" min="0" step="1" id="review-cholesterol-${idx}" value="${p.cholesterol}" oninput="preventNegative(this)" class="w-full p-1.5 border rounded-lg bg-white text-xs text-right mt-0.5">
-              </div>
-            </div>
-          </div>
-        `;
-      });
-    }
-
-    // 검토 화면의 입력값(사용자가 수정한 값 포함)을 products 배열에 반영한다.
-    // preventNegative가 입력 중 음수를 막아주지만, 방어적으로 여기서도 한 번 더 0 이상으로 고정한다.
-    function applyReviewEdits() {
-      products.forEach((p, idx) => {
-        p.name = document.getElementById(`review-name-${idx}`).value.trim() || p.name;
-        p.calorie = Math.max(0, Number(document.getElementById(`review-calorie-${idx}`).value) || 0);
-        p.protein = Math.max(0, Number(document.getElementById(`review-protein-${idx}`).value) || 0);
-        p.carb = Math.max(0, Number(document.getElementById(`review-carb-${idx}`).value) || 0);
-        p.sugar = Math.max(0, Number(document.getElementById(`review-sugar-${idx}`).value) || 0);
-        p.fat = Math.max(0, Number(document.getElementById(`review-fat-${idx}`).value) || 0);
-        p.sodium = Math.max(0, Number(document.getElementById(`review-sodium-${idx}`).value) || 0);
-        p.cholesterol = Math.max(0, Number(document.getElementById(`review-cholesterol-${idx}`).value) || 0);
-      });
-    }
-
-    // 검토 화면에서 사진을 다시 찍고 싶을 때 STEP2로 돌아간다 (업로드된 사진/가격은 유지됨).
-    function backToStep2FromReview() {
-      document.getElementById('step-review').classList.add('hidden');
-      document.getElementById('step-2').classList.remove('hidden');
-    }
-
-    // 사용자가 영양성분 검토/수정을 마치고 "확인 완료"를 누르면 실행 — 이때 비로소 스코어링을 진행한다.
-    async function proceedToScoring() {
-      applyReviewEdits();
-
-      document.getElementById('step-review').classList.add('hidden');
-      document.getElementById('step-loading').classList.remove('hidden');
-
-      try {
-        // 1. 가중치 결정 — 커스텀 슬라이더 > 자유 서술 입력 > 목표 프리셋 순으로 우선 적용
-        //    (Scoring 서버의 custom_weights > health_text > goal 우선순위와 동일하게 맞춤)
-        const requestBody = { products: products.map(toScoringProduct) };
-        const allHaveCost = products.every((p) => p.costPer100 !== null);
-
-        if (isCustomWeightActive) {
-          const weights = { ...customWeights };
-          if (!allHaveCost) delete weights.cost; // 가격 환산이 안 되면 가중치에서 제외
-          requestBody.custom_weights = weights;
-          showProteinCostRow = false;
-        } else if (chatHistory.length) {
-          requestBody.health_text = chatHistory[chatHistory.length - 1];
-          showProteinCostRow = false;
-        } else {
-          requestBody.goal = selectedGoalValue;
-          showProteinCostRow = selectedGoalValue === 'muscle';
-        }
-
-        // 2. 스코어링 요청
-        const scoreRes = await fetch(RECOMMEND_PATH, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
-        });
-        if (!scoreRes.ok) {
-          const err = await scoreRes.json().catch(() => ({}));
-          throw new Error(err.error || `비교 계산에 실패했습니다 (${scoreRes.status})`);
-        }
-        const scored = await scoreRes.json();
-
-        applyScoreResult(scored);
-
-        document.getElementById('step-loading').classList.add('hidden');
-        renderResultTable();
-        document.getElementById('step-result').classList.remove('hidden');
-      } catch (err) {
-        console.error(err);
-        alert("❌ " + err.message);
-        document.getElementById('step-loading').classList.add('hidden');
-        document.getElementById('step-review').classList.remove('hidden');
+      if (isCustomWeightActive) {
+        const weights = { ...customWeights };
+        if (!allHaveCost) delete weights.cost; // 가격 환산이 안 되면 가중치에서 제외
+        requestBody.custom_weights = weights;
+        showProteinCostRow = false;
+      } else if (chatHistory.length) {
+        requestBody.health_text = chatHistory[chatHistory.length - 1];
+        showProteinCostRow = false;
+      } else {
+        requestBody.goal = selectedGoalValue;
+        showProteinCostRow = selectedGoalValue === 'muscle';
       }
+
+      // 2. 스코어링 요청
+      const scoreRes = await fetch(RECOMMEND_PATH, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+      if (!scoreRes.ok) {
+        const err = await scoreRes.json().catch(() => ({}));
+        throw new Error(err.error || `비교 계산에 실패했습니다 (${scoreRes.status})`);
+      }
+      const scored = await scoreRes.json();
+
+      applyScoreResult(scored);
+
+      document.getElementById('step-loading').classList.add('hidden');
+      renderResultTable();
+      document.getElementById('step-result').classList.remove('hidden');
     }
 
     // scoring API가 기대하는 { name, nutrients } 형태로 변환
@@ -756,7 +651,7 @@
           ${products.map(p => {
             if (p.proteinCostBasis === null) return `<td class="p-2 text-gray-500">-</td>`;
             const val = Math.round(p.proteinCostBasis);
-            return `<td class="p-2 ${p.isWinner ? 'font-bold text-emerald-700 bg-emerald-100' : ''}">${val}원/g ${p.isWinner ? '🔥' : ''}</td>`;
+            return `<td class="p-2 ${p.isWinner ? 'font-bold text-emerald-700 bg-emerald-100' : ''}">${val}원/g</td>`;
           }).join('')}
         </tr>`
         : '';
@@ -793,31 +688,31 @@
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">칼로리 (kcal/100g)</label>
-                <input type="number" id="edit-cal-${idx}" value="${p.calorie}" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" id="edit-cal-${idx}" value="${p.calorie}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">단백질 (g/100g)</label>
-                <input type="number" id="edit-prot-${idx}" value="${p.protein}" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" step="0.1" id="edit-prot-${idx}" value="${p.protein}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">탄수화물 (g/100g)</label>
-                <input type="number" id="edit-carb-${idx}" value="${p.carb}" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" step="0.1" id="edit-carb-${idx}" value="${p.carb}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">당류 (g/100g)</label>
-                <input type="number" step="0.1" id="edit-sug-${idx}" value="${p.sugar}" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" step="0.1" id="edit-sug-${idx}" value="${p.sugar}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">지방 (g/100g)</label>
-                <input type="number" step="0.1" id="edit-fat-${idx}" value="${p.fat}" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" step="0.1" id="edit-fat-${idx}" value="${p.fat}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">나트륨 (mg/100g)</label>
-                <input type="number" id="edit-sod-${idx}" value="${p.sodium}" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" id="edit-sod-${idx}" value="${p.sodium}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">콜레스테롤 (mg/100g)</label>
-                <input type="number" id="edit-chol-${idx}" value="${p.cholesterol}" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" id="edit-chol-${idx}" value="${p.cholesterol}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">가격 (원)</label>
@@ -833,26 +728,42 @@
 
     function closeEditModal() { document.getElementById('modal-edit').classList.add('hidden'); }
 
-    function saveEditedData() {
+    async function saveEditedData() {
       products.forEach((p, idx) => {
         p.name = document.getElementById(`edit-name-${idx}`).value || p.name;
-        p.calorie = Number(document.getElementById(`edit-cal-${idx}`).value) || 0;
-        p.protein = Number(document.getElementById(`edit-prot-${idx}`).value) || 0;
-        p.carb = Number(document.getElementById(`edit-carb-${idx}`).value) || 0;
-        p.sugar = Number(document.getElementById(`edit-sug-${idx}`).value) || 0;
-        p.fat = Number(document.getElementById(`edit-fat-${idx}`).value) || 0;
-        p.sodium = Number(document.getElementById(`edit-sod-${idx}`).value) || 0;
-        p.cholesterol = Number(document.getElementById(`edit-chol-${idx}`).value) || 0;
+        // 영양소 값은 라벨상 존재할 수 없는 음수를 막기 위해 0 이상으로 고정한다.
+        // (입력 중에는 preventNegative가 즉시 보정해주지만, 저장 시점에도 한 번 더 방어한다)
+        p.calorie = Math.max(0, Number(document.getElementById(`edit-cal-${idx}`).value) || 0);
+        p.protein = Math.max(0, Number(document.getElementById(`edit-prot-${idx}`).value) || 0);
+        p.carb = Math.max(0, Number(document.getElementById(`edit-carb-${idx}`).value) || 0);
+        p.sugar = Math.max(0, Number(document.getElementById(`edit-sug-${idx}`).value) || 0);
+        p.fat = Math.max(0, Number(document.getElementById(`edit-fat-${idx}`).value) || 0);
+        p.sodium = Math.max(0, Number(document.getElementById(`edit-sod-${idx}`).value) || 0);
+        p.cholesterol = Math.max(0, Number(document.getElementById(`edit-chol-${idx}`).value) || 0);
         p.price = Math.max(0, Number(document.getElementById(`edit-price-${idx}`).value) || 0);
+        // 가격이 바뀌었으니 100g당 가격/단백질 1g당 가격도 최신 가격 기준으로 다시 계산한다.
+        p.costPer100 = p.packageGrams && p.price ? p.price / (p.packageGrams / 100) : null;
+        p.proteinCostBasis = p.perPackageProtein && p.price ? p.price / p.perPackageProtein : null;
       });
 
-      renderResultTable();
       closeEditModal();
+
+      // 수정된 영양성분/가격은 순위에 영향을 주므로, 저장 즉시 재스코어링해서 결과를 최신 상태로 맞춘다.
+      document.getElementById('step-result').classList.add('hidden');
+      document.getElementById('step-loading').classList.remove('hidden');
+
+      try {
+        await runScoring('step-result');
+      } catch (err) {
+        console.error(err);
+        alert("❌ " + err.message);
+        document.getElementById('step-loading').classList.add('hidden');
+        document.getElementById('step-result').classList.remove('hidden');
+      }
     }
 
     function resetApp() {
       document.getElementById('step-result').classList.add('hidden');
-      document.getElementById('step-review').classList.add('hidden');
       document.getElementById('step-2').classList.add('hidden');
       document.getElementById('step-1').classList.remove('hidden');
 
