@@ -337,6 +337,9 @@
     // 분석 완료 후 화면에 표시할 실제 제품 데이터. 더미 대신 API 응답으로 채워집니다.
     let products = [];
 
+    // 이번 스코어링에 실제로 사용된 가중치 (결과 표 하이라이트 기준)
+    let activeWeights = {};
+
     // 화면 전환 함수
     function goToStep2() {
       document.getElementById('step-1').classList.add('hidden');
@@ -532,9 +535,35 @@
       const rankByName = new Map(scored.ranked.map((r, i) => [r.name, i]));
       products.forEach((p) => { p.isWinner = rankByName.get(p.name) === 0; });
 
+      activeWeights = scored.weights_used || {};
+
       const winner = products.find((p) => p.isWinner) || products[0];
       document.getElementById('winner-title').textContent = winner.name;
       document.getElementById('winner-reason').textContent = scored.recommendation;
+    }
+
+    // key(영양소 키)가 이번 스코어링에 실제로 반영된 기준인지 여부
+    function isActive(key) {
+      return !!activeWeights &&
+        Object.prototype.hasOwnProperty.call(activeWeights, key) &&
+        Number(activeWeights[key]) > 0;
+    }
+
+    // 영양소 한 행을 그린다. 기준에 반영된 항목만 파란색으로 하이라이트.
+    function renderNutrientRow(key, label, unit, getValue) {
+      const active = isActive(key);
+      const rowBg = active ? 'bg-blue-50/60' : '';
+      const labelBg = active ? 'bg-blue-50/80' : 'bg-white';
+      const labelText = active ? 'text-blue-900 font-bold' : 'font-medium';
+      const badge = active
+        ? ' <span class="text-[9px] text-blue-500 font-bold">●기준반영</span>'
+        : '';
+
+      return `
+        <tr class="${rowBg}">
+          <td class="p-2 text-left ${labelText} sticky left-0 ${labelBg} z-10 border-r">${label}${badge} <span class="text-[9px] text-gray-400 font-normal">${unit}</span></td>
+          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${getValue(p)}</td>`).join('')}
+        </tr>`;
     }
 
     function renderResultTable() {
@@ -547,48 +576,29 @@
         headRow.innerHTML += `<th class="p-2 min-w-[85px] ${bgClass}">${p.name} ${p.isWinner ? '(1위)' : ''}</th>`;
       });
 
-      tbody.innerHTML = `
-        <tr>
-          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">열량 <span class="text-[9px] text-gray-400">/100g</span></td>
-          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.calorie} kcal</td>`).join('')}
-        </tr>
-        <tr>
-          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">단백질 <span class="text-[9px] text-gray-400">/100g</span></td>
-          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.protein}g</td>`).join('')}
-        </tr>
-        <tr>
-          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">탄수화물 <span class="text-[9px] text-gray-400">/100g</span></td>
-          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.carb}g</td>`).join('')}
-        </tr>
-        <tr class="bg-red-50/40">
-          <td class="p-2 text-left font-medium text-red-900 sticky left-0 bg-red-50/60 z-10 border-r">당류</td>
-          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.sugar}g</td>`).join('')}
-        </tr>
-        <tr>
-          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">지방 <span class="text-[9px] text-gray-400">/100g</span></td>
-          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.fat}g</td>`).join('')}
-        </tr>
-        <tr>
-          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">나트륨 <span class="text-[9px] text-gray-400">/100g</span></td>
-          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.sodium}mg</td>`).join('')}
-        </tr>
-        <tr>
-          <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">콜레스테롤 <span class="text-[9px] text-gray-400">/100g</span></td>
-          ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.cholesterol}mg</td>`).join('')}
-        </tr>
-        <tr>
+      // cost(가성비) 가중치는 판매가/단백질1g당 지표와 관련이 있어 함께 하이라이트
+      const costActive = isActive('cost') || isActive('protein');
+
+      tbody.innerHTML =
+        renderNutrientRow('calorie', '열량', '/100g', p => `${p.calorie} kcal`) +
+        renderNutrientRow('protein', '단백질', '/100g', p => `${p.protein}g`) +
+        renderNutrientRow('carb', '탄수화물', '/100g', p => `${p.carb}g`) +
+        renderNutrientRow('sugar', '당류', '/100g', p => `${p.sugar}g`) +
+        renderNutrientRow('fat', '지방', '/100g', p => `${p.fat}g`) +
+        renderNutrientRow('sodium', '나트륨', '/100g', p => `${p.sodium}mg`) +
+        renderNutrientRow('cholesterol', '콜레스테롤', '/100g', p => `${p.cholesterol}mg`) +
+        `<tr>
           <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">판매가</td>
           ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.price ? p.price.toLocaleString() + '원' : '-'}</td>`).join('')}
-        </tr>
-        <tr class="bg-amber-50">
-          <td class="p-2 text-left font-bold text-amber-900 sticky left-0 bg-amber-50 z-10 border-r">단백질 1g당</td>
+        </tr>` +
+        `<tr class="${costActive ? 'bg-blue-50/60' : ''}">
+          <td class="p-2 text-left ${costActive ? 'font-bold text-blue-900' : 'font-medium'} sticky left-0 ${costActive ? 'bg-blue-50/80' : 'bg-white'} z-10 border-r">단백질 1g당${costActive ? ' <span class="text-[9px] text-blue-500 font-bold">●기준반영</span>' : ''}</td>
           ${products.map(p => {
-            if (p.proteinCostBasis === null) return `<td class="p-2 text-amber-900">-</td>`;
+            if (p.proteinCostBasis === null) return `<td class="p-2 text-gray-500">-</td>`;
             const val = Math.round(p.proteinCostBasis);
-            return `<td class="p-2 ${p.isWinner ? 'font-bold text-emerald-700 bg-emerald-100' : 'text-amber-900'}">${val}원/g ${p.isWinner ? '🔥' : ''}</td>`;
+            return `<td class="p-2 ${p.isWinner ? 'font-bold text-emerald-700 bg-emerald-100' : ''}">${val}원/g ${p.isWinner ? '🔥' : ''}</td>`;
           }).join('')}
-        </tr>
-      `;
+        </tr>`;
     }
 
     function openEditModal() {
@@ -636,7 +646,7 @@
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">가격 (원)</label>
-                <input type="number" step="100" id="edit-price-${idx}" value="${p.price}" class="w-full p-1 border rounded bg-white text-xs text-right font-bold text-emerald-700">
+                <input type="number" id="edit-price-${idx}" value="${p.price}" class="w-full p-1 border rounded bg-white text-xs text-right font-bold text-emerald-700">
               </div>
             </div>
           </div>
