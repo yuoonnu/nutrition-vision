@@ -75,7 +75,7 @@ const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN;
 
 app.post("/api/recommend", async (req, res) => {
   try {
-    const upstream = await fetch(SCORING_URL, {
+    const upstream = await fetchWithRetry(SCORING_URL, {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",
@@ -158,3 +158,15 @@ app.listen(port, () => {
     console.warn("GEMINI_API_KEY 문제");
   }
 });
+
+async function fetchWithRetry(url, options, retries = 1) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    if (retries > 0 && err.cause?.code !== "ABORT_ERR") {
+      await new Promise((r) => setTimeout(r, 1000));
+      return fetchWithRetry(url, options, retries - 1);
+    }
+    throw err;
+  }
+}
