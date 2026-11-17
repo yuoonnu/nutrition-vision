@@ -125,6 +125,9 @@
           <p id="custom-weight-badge" class="hidden text-[11px] text-emerald-600 font-medium mt-2 bg-emerald-50 p-1.5 rounded-lg text-center border border-emerald-200">
             ✨ 커스텀 가중치가 적용되어 있습니다.
           </p>
+          <p id="chat-weight-badge" class="hidden text-[11px] text-emerald-600 font-medium mt-2 bg-emerald-50 p-1.5 rounded-lg text-center border border-emerald-200">
+          💬 자유 서술 기준으로 비교합니다.
+          </p>
         </section>
 
         <!-- 2. 자유 서술 요청 -->
@@ -376,6 +379,7 @@
     const API_BASE = "https://nutrition-vision.onrender.com";
     const EXTRACT_PATH = `${API_BASE}/api/extract/batch`;
     const RECOMMEND_PATH = `${API_BASE}/api/recommend`;
+    const INTERPRET_PATH = `${API_BASE}/api/interpret`;
 
     /**
      * 서버/네트워크 연결 문제(타임아웃, 502/503/504, DNS 실패 등)를 나타내는 전용 에러.
@@ -413,6 +417,8 @@
     let selectedGoalValue = 'weight_loss';
     let isCustomWeightActive = false;
     let chatHistory = [];
+    let chatWeights = null; // 자유 서술을 해석한 가중치 (해석 성공 시에만 채워짐)
+    let chatText = '';      // 그 가중치를 만든 문장 (추천 문구에 표시)
 
     // 목표(goal) 버튼을 선택했을 때 "가중치 설정" 모달에 기본으로 채워줄 슬라이더 값(%).
     // nutrition_scoring.py의 GOAL_WEIGHTS를 최대한 반영하되, 이 모달은 calorie/protein/sugar/sodium/cost
@@ -467,7 +473,10 @@
     function selectGoal(element, goal) {
       selectedGoalValue = goal;
       isCustomWeightActive = false;
-      document.getElementById('custom-weight-badge').classList.add('hidden');
+      chatHistory = []; // 목표 카드를 직접 고르면 자유 서술 기준은 해제
+      document.getElementById('chat-weight-badge').classList.add('hidden');
+      chatWeights = null;
+      chatText = '';
       
       document.querySelectorAll('.goal-btn').forEach(btn => {
         btn.className = 'goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]';
@@ -496,32 +505,69 @@
       });
     }
 
-    function sendChatMessage() {
+        // 사용자가 입력한 글자를 화면에 그대로 넣으면 <script> 같은 코드가 실행될 수 있어 변환한다
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function addChatBubble(role, html) {
+      const chatBox = document.getElementById('chat-messages');
+      const el = document.createElement('div');
+      el.className = role === 'user' ? 'flex items-start justify-end gap-1.5' : 'flex items-start gap-1.5';
+      el.innerHTML = role === 'user'
+        ? `<p class="bg-gray-800 text-white p-2 rounded-lg leading-relaxed text-[11px] max-w-[80%]">${html}</p><span class="text-base">👤</span>`
+        : `<span class="text-base">🤖</span><p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">${html}</p>`;
+      chatBox.appendChild(el);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return el.querySelector('p');
+    }
+
+    async function sendChatMessage() {
       const input = document.getElementById('user-chat-input');
       const text = input.value.trim();
       if (!text) return;
-
-      const chatBox = document.getElementById('chat-messages');
-      chatHistory.push(text);
-
-      chatBox.innerHTML += `
-        <div class="flex items-start justify-end gap-1.5">
-          <p class="bg-gray-800 text-white p-2 rounded-lg leading-relaxed text-[11px] max-w-[80%]">${text}</p>
-          <span class="text-base">👤</span>
-        </div>
-      `;
-
-      chatBox.innerHTML += `
-        <div class="flex items-start gap-1.5">
-          <span class="text-base">🤖</span>
-          <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">
-            접수되었습니다! "${text}" 조건은 분석 시 반영됩니다.
-          </p>
-        </div>
-      `;
-
       input.value = '';
-      chatBox.scrollTop = chatBox.scrollHeight;
+
+      addChatBubble('user', escapeHtml(text));
+      const reply = addChatBubble('bot', '이해하는 중이에요…');
+
+      try {
+        const res = await safeFetch(INTERPRET_PATH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ health_text: text }),
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          reply.innerHTML = '어떤 영양 기준을 원하시는지 이해하지 못했어요. 예: "당뇨 초기예요", "짠 음식을 줄이고 싶어요"처럼 적어 주세요.';
+          return;
+        }
+
+        chatWeights = data.weights;
+        chatText = text;
+        chatHistory.push(text);
+
+        // "나트륨·칼로리가 적고, 단백질이 많은 제품" 형태로 해석 결과를 보여준다
+        const parts = [];
+        if (data.lower?.length) parts.push(`${data.lower.join('·')}이(가) 적은`);
+        if (data.higher?.length) parts.push(`${data.higher.join('·')}이(가) 많은`);
+        reply.innerHTML = `알겠어요! <b>${escapeHtml(parts.join(', '))}</b> 제품을 우선해서 비교할게요.`;
+
+        if (isCustomWeightActive) {
+          reply.innerHTML += '<br>지금은 직접 설정한 가중치가 우선 적용 중이에요. 이 내용을 쓰려면 목표를 다시 선택해 주세요.';
+          return;
+        }
+        // 자유 서술이 목표 카드보다 우선이므로 카드 선택을 해제하고 배지로 알린다
+        document.querySelectorAll('.goal-btn').forEach(btn => {
+          btn.className = 'goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]';
+          const descDiv = btn.querySelector('div:last-child');
+          if (descDiv) descDiv.className = 'text-[10px] text-gray-400 font-normal';
+        });
+        document.getElementById('chat-weight-badge').classList.remove('hidden');
+      } catch (err) {
+        reply.innerHTML = err instanceof ConnectionError ? err.message : '해석 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.';
+      }
     }
 
     function updateSliderVal(key, val) {
@@ -652,8 +698,9 @@
         if (!allHaveCost) delete weights.cost; // 가격 환산이 안 되면 가중치에서 제외
         requestBody.custom_weights = weights;
         showProteinCostRow = false;
-      } else if (chatHistory.length) {
-        requestBody.health_text = chatHistory[chatHistory.length - 1];
+      } else if (chatWeights) {
+        requestBody.custom_weights = { ...chatWeights }; // 이미 해석한 가중치 (Gemini를 다시 부르지 않음)
+        requestBody.health_text = chatText;              // 추천 문구에 "'짠 음식...' 목표에 적합" 으로 표시
         showProteinCostRow = false;
       } else {
         requestBody.goal = selectedGoalValue;
@@ -894,7 +941,11 @@
       });
 
       chatHistory = [];
+      document.getElementById('chat-weight-badge').classList.add('hidden');
+      chatWeights = null;   // ← 추가
+      chatText = '';        // ← 추가
       document.getElementById('chat-messages').innerHTML = `
+        ...
         <div class="flex items-start gap-1.5">
           <span class="text-base">🤖</span>
           <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">

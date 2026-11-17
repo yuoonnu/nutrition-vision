@@ -4,4 +4,3 @@ node_modules/
 .cache/
 test/results/
 test/dataset/
-test/dataset/
