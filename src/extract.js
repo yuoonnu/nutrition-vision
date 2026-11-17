@@ -48,7 +48,7 @@ export async function extractNutrition(images, opts = {}) {
     contents: [{ role: "user", parts }],
     generationConfig: {
       temperature: 0, // 판독 작업에 다양성은 손해다
-      maxOutputTokens: 2048,
+      maxOutputTokens: 8192,
       responseMimeType: "application/json",
       responseSchema: GEMINI_SCHEMA,
     },
@@ -58,6 +58,7 @@ export async function extractNutrition(images, opts = {}) {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!res.ok) {
@@ -82,7 +83,10 @@ function textOf(data) {
     const block = data?.promptFeedback?.blockReason;
     throw new Error(block ? `요청이 차단되었습니다 (${block})` : "응답이 비어 있습니다.");
   }
-  if (cand.finishReason && !["STOP", "MAX_TOKENS"].includes(cand.finishReason)) {
+    if (cand.finishReason === "MAX_TOKENS") {
+    throw new Error("응답이 출력 한도에서 잘렸습니다 (MAX_TOKENS). maxOutputTokens를 늘리세요.");
+  }
+  if (cand.finishReason && cand.finishReason !== "STOP") {
     throw new Error(`생성이 중단되었습니다 (${cand.finishReason})`);
   }
   return (cand.content?.parts ?? []).map((p) => p.text ?? "").join("");
