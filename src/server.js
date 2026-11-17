@@ -94,6 +94,28 @@ app.post("/api/recommend", async (req, res) => {
   }
 });
 
+/* ── 자유 서술 즉시 해석 (Flask /interpret 중계) ─────────────── */
+const INTERPRET_URL = process.env.INTERPRET_URL ?? SCORING_URL.replace(/\/recommend$/, "/interpret");
+
+app.post("/api/interpret", async (req, res) => {
+  try {
+    const upstream = await fetchWithRetry(INTERPRET_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(INTERNAL_API_TOKEN ? { "X-Internal-Token": INTERNAL_API_TOKEN } : {}),
+      },
+      body: JSON.stringify({ health_text: req.body?.health_text ?? "" }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const data = await upstream.json().catch(() => ({}));
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    console.error("[interpret proxy]", err);
+    res.status(502).json({ error: "스코어링 서버(Flask)에 연결할 수 없습니다." });
+  }
+});
+
 /* ── 라이브 스캔 (카메라 방식) ────────────────────────────── */
 
 app.post("/api/scan/session", (req, res) => {
