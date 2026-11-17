@@ -100,6 +100,8 @@ export function scoreRecognition(data, validation, consensus) {
   if (fatal) score = Math.min(score, 40);
   if (disputed.length) score = Math.min(score, LOCK_THRESHOLD - 1);
 
+    // 검증 오류가 남아 있으면 확정하지 않는다
+  if (validation?.issues?.some((i) => i.severity === "error")) score = Math.min(score, LOCK_THRESHOLD - 1);
   score = Math.max(0, Math.min(100, Math.round(score)));
 
   return {

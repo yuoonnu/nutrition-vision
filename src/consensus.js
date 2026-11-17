@@ -55,14 +55,21 @@ export function buildConsensus(frames) {
     }
   }
 
+    // 중량 값도 영양소처럼 엇갈림을 기록한다 — 총 내용량이 틀리면 100g당 환산 전체가 틀어진다
   for (const key of ["serving_amount", "package_amount", "servings_per_package"]) {
     const values = valid.map((f) => f[key]).filter((v) => typeof v === "number");
-    if (values.length) merged[key] = vote(values).value;
+    if (!values.length) continue;
+    const { value, support } = vote(values);
+    merged[key] = value;
+    fields[key] = { value, support, total: valid.length, candidates: unique(values) };
   }
 
   // 알레르기는 합집합 (한 프레임에서만 보였어도 유효한 정보)
   merged.allergens = unique(valid.flatMap((f) => f.allergens ?? []));
-  merged.image_issues = unique(valid.flatMap((f) => f.image_issues ?? []));
+    // 품질 문제는 모든 프레임에 공통일 때만 남긴다 (한 장만 흐렸으면 나머지 프레임이 대조해 준다)
+  merged.image_issues = (valid[0].image_issues ?? []).filter((issue) =>
+    valid.every((f) => (f.image_issues ?? []).includes(issue))
+  );
   merged.confidence = Math.max(...valid.map((f) => f.confidence ?? 0));
 
   return {

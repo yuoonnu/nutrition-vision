@@ -16,6 +16,14 @@ import { REQUIRED_NUTRIENTS, NUTRIENT_LABELS_KO, NUTRIENT_UNITS } from "./schema
  */
 export async function recognizeProduct(imageBuffers, opts = {}) {
   const startedAt = Date.now();
+  // 단계별 소요 시간(ms). 응답의 debug.timing으로 내보내 성능 측정에 쓴다.
+  const timing = {};
+  let mark = Date.now();
+  const lap = (name) => {
+    const now = Date.now();
+    timing[name] = (timing[name] ?? 0) + (now - mark);
+    mark = now;
+  };
 
   try {
     if (!imageBuffers?.length) {
@@ -28,6 +36,7 @@ export async function recognizeProduct(imageBuffers, opts = {}) {
       Promise.all(imageBuffers.map((b) => prepareImage(b, { maxEdge: EDGE_PRIMARY }))),
     ]);
     const bestScore = Math.max(...scores.filter((s) => s !== null), 0);
+    lap("preprocess"); // 흐림 판정 + 이미지 축소·압축
     if (bestScore && bestScore < BLUR_THRESHOLD * 0.5) {
       return {
         ...failure("사진이 너무 흐려 판독할 수 없습니다.", "too_blurry"),
@@ -38,11 +47,13 @@ export async function recognizeProduct(imageBuffers, opts = {}) {
 
 // 2. 1차 추출 (재시도용 고해상도 이미지도 동시에 준비 시작 — 응답을 기다리는 동안 병행)
 let data = await extractNutrition(images, { model: process.env.MODEL_PRIMARY });
+lap("extract"); // Gemini 1차 판독
 const retryImagesPromise = Promise.all(
   imageBuffers.map((b) => prepareImage(b, { maxEdge: EDGE_RETRY, sharpen: true }))
 );
 let result = validate(data);
 let attempts = 1;
+lap("validate");
 
 // 3. 재시도 — 고해상도 + 선명화 + 더 정확한 모델
 const worthRetrying =
@@ -50,27 +61,39 @@ const worthRetrying =
 
 if (worthRetrying) {
   const retryImages = await retryImagesPromise; // 이미 준비돼 있을 가능성이 높음
-  const retryData = await extractNutrition(retryImages, {
-    model: process.env.MODEL_RETRY ?? process.env.MODEL_PRIMARY,
-    userPrompt: buildRetryPrompt(data),
-  });
-      const retryResult = validate(retryData);
-      attempts = 2;
+  let retryData = null;
+  try {
+    retryData = await extractNutrition(retryImages, {
+      model: process.env.MODEL_RETRY ?? process.env.MODEL_PRIMARY,
+      userPrompt: buildRetryPrompt(data),
+    });
+  } catch (err) {
+    // 재시도가 실패해도 1차 결과는 살린다
+    console.warn("[pipeline] 재시도 실패, 1차 결과 사용:", err.message);
+  }
+  attempts = 2;
+  lap("retry"); // 고해상도 이미지 준비 대기 + Gemini 2차 판독
 
-      // 두 번의 결과 중 더 나은 쪽을 채택하고, 부족한 필드는 서로 메운다
-      const merged = mergeAttempts(data, retryData);
-      const mergedResult = validate(merged);
+  if (retryData) {
+    const retryResult = validate(retryData);
+    // 두 번의 결과 중 더 나은 쪽을 채택하고, 부족한 필드는 서로 메운다
+    const merged = mergeAttempts(data, retryData);
+    const mergedResult = validate(merged);
 
-      if (score(mergedResult) >= Math.max(score(result), score(retryResult))) {
-        data = merged;
-        result = mergedResult;
-      } else if (score(retryResult) > score(result)) {
-        data = retryData;
-        result = retryResult;
-      }
+    if (score(mergedResult) >= Math.max(score(result), score(retryResult))) {
+      data = merged;
+      result = mergedResult;
+    } else if (score(retryResult) > score(result)) {
+      data = retryData;
+      result = retryResult;
     }
+  }
+  lap("validate");
+}
 
     // 4. 응답 조립
+    const normalized = normalize(data);
+    lap("normalize");
     return {
       status: result.status,
       confidence: result.confidence,
@@ -80,7 +103,7 @@ if (worthRetrying) {
         allergens: data.allergens ?? [],
       },
       raw: data,
-      normalized: normalize(data),
+      normalized,
       issues: result.issues,
       reviewFields: buildReviewFields(data, result),
       retakeHint: retakeHint(data, result),
@@ -89,6 +112,7 @@ if (worthRetrying) {
         blurScore: bestScore,
         energyCheck: result.energyCheck,
         elapsedMs: Date.now() - startedAt,
+        timing,
         cached: !!data._cached,
       },
     };

@@ -137,7 +137,7 @@
             <div class="flex items-start gap-1.5">
               <span class="text-base">🤖</span>
               <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">
-                안녕하세요! "유당불내증 있음", "콜레스테롤 10mg 이하" 등 특이사항이나 선호 조건을 자유롭게 적어주세요!
+                안녕하세요! "당뇨 초기예요", "나트륨 적은 제품 위주로" 등 특이사항이나 선호 조건을 자유롭게 적어주세요!
               </p>
             </div>
           </div>
@@ -605,13 +605,13 @@
           return {
             name: nameInput || p.product?.name || `제품 ${String.fromCharCode(65 + i)}`,
             price: priceInput,
-            calorie: per100.calorie ?? 0,
-            protein: per100.protein ?? 0,
-            carb: per100.carb ?? 0,
-            sugar: per100.sugar ?? 0,
-            fat: per100.fat ?? 0,
-            sodium: per100.sodium ?? 0,
-            cholesterol: per100.cholesterol ?? 0,
+            calorie: per100.calorie ?? null,
+            protein: per100.protein ?? null,
+            carb: per100.carb ?? null,
+            sugar: per100.sugar ?? null,
+            fat: per100.fat ?? null,
+            sodium: per100.sodium ?? null,
+            cholesterol: per100.cholesterol ?? null,
             // 수정 화면에서 가격이 바뀔 때 100g당 가격/단백질당 가격을 다시 계산할 수 있도록 보관
             packageGrams,
             perPackageProtein,
@@ -748,14 +748,19 @@
         </tr>`
         : '';
 
+            // 값이 없으면(null) '-'로 표시. "nullmg"처럼 보이는 것을 막는다.
+      const fmt = (v, unit) => (v === null || v === undefined) ? '-' : `${v}${unit}`;
+
       tbody.innerHTML =
-        renderNutrientRow('calorie', '열량', '/100g', p => `${p.calorie} kcal`) +
-        renderNutrientRow('protein', '단백질', '/100g', p => `${p.protein}g`) +
-        renderNutrientRow('carb', '탄수화물', '/100g', p => `${p.carb}g`) +
-        renderNutrientRow('sugar', '당류', '/100g', p => `${p.sugar}g`) +
-        renderNutrientRow('fat', '지방', '/100g', p => `${p.fat}g`) +
-        renderNutrientRow('sodium', '나트륨', '/100g', p => `${p.sodium}mg`) +
-        renderNutrientRow('cholesterol', '콜레스테롤', '/100g', p => `${p.cholesterol}mg`) +
+        renderNutrientRow('calorie', '칼로리', '/100g', p => fmt(p.calorie, ' kcal')) +
+        renderNutrientRow('protein', '단백질', '/100g', p => fmt(p.protein, 'g')) +
+        renderNutrientRow('carb', '탄수화물', '/100g', p => fmt(p.carb, 'g')) +
+        renderNutrientRow('sugar', '당류', '/100g', p => fmt(p.sugar, 'g')) +
+        renderNutrientRow('fat', '지방', '/100g', p => fmt(p.fat, 'g')) +
+        renderNutrientRow('sodium', '나트륨', '/100g', p => fmt(p.sodium, 'mg')) +
+        renderNutrientRow('cholesterol', '콜레스테롤', '/100g', p => fmt(p.cholesterol, 'mg')) +
+        renderNutrientRow('cost', '100g당 가격', '', p =>
+          p.costPer100 === null ? '-' : `${Math.round(p.costPer100).toLocaleString()}원`) +
         `<tr>
           <td class="p-2 text-left font-medium sticky left-0 bg-white z-10 border-r">판매가</td>
           ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${p.price ? p.price.toLocaleString() + '원' : '-'}</td>`).join('')}
@@ -780,31 +785,31 @@
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">칼로리 (kcal/100g)</label>
-                <input type="number" min="0" id="edit-cal-${idx}" value="${p.calorie}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" id="edit-cal-${idx}" value="${p.calorie ?? ''}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">단백질 (g/100g)</label>
-                <input type="number" min="0" step="0.1" id="edit-prot-${idx}" value="${p.protein}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" step="0.1" id="edit-prot-${idx}" value="${p.protein ?? ''}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">탄수화물 (g/100g)</label>
-                <input type="number" min="0" step="0.1" id="edit-carb-${idx}" value="${p.carb}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" step="0.1" id="edit-carb-${idx}" value="${p.carb ?? ''}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">당류 (g/100g)</label>
-                <input type="number" min="0" step="0.1" id="edit-sug-${idx}" value="${p.sugar}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" step="0.1" id="edit-sug-${idx}" value="${p.sugar ?? ''}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">지방 (g/100g)</label>
-                <input type="number" min="0" step="0.1" id="edit-fat-${idx}" value="${p.fat}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" step="0.1" id="edit-fat-${idx}" value="${p.fat ?? ''}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">나트륨 (mg/100g)</label>
-                <input type="number" min="0" id="edit-sod-${idx}" value="${p.sodium}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" id="edit-sod-${idx}" value="${p.sodium ?? ''}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">콜레스테롤 (mg/100g)</label>
-                <input type="number" min="0" id="edit-chol-${idx}" value="${p.cholesterol}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
+                <input type="number" min="0" id="edit-chol-${idx}" value="${p.cholesterol ?? ''}" oninput="preventNegative(this)" class="w-full p-1 border rounded bg-white text-xs text-right">
               </div>
               <div>
                 <label class="text-[10px] text-gray-500">가격 (원)</label>
@@ -821,19 +826,22 @@
     function closeEditModal() { document.getElementById('modal-edit').classList.add('hidden'); }
 
     async function saveEditedData() {
+      // 빈칸은 null(미확인)로 유지. 0으로 바꾸면 "가장 적음"으로 1위가 돼 버린다.
+      const readNum = (id) => {
+        const raw = document.getElementById(id).value.trim();
+        return raw === '' ? null : Math.max(0, Number(raw));
+      };
+
       products.forEach((p, idx) => {
         p.name = document.getElementById(`edit-name-${idx}`).value || p.name;
-        // 영양소 값은 라벨상 존재할 수 없는 음수를 막기 위해 0 이상으로 고정한다.
-        // (입력 중에는 preventNegative가 즉시 보정해주지만, 저장 시점에도 한 번 더 방어한다)
-        p.calorie = Math.max(0, Number(document.getElementById(`edit-cal-${idx}`).value) || 0);
-        p.protein = Math.max(0, Number(document.getElementById(`edit-prot-${idx}`).value) || 0);
-        p.carb = Math.max(0, Number(document.getElementById(`edit-carb-${idx}`).value) || 0);
-        p.sugar = Math.max(0, Number(document.getElementById(`edit-sug-${idx}`).value) || 0);
-        p.fat = Math.max(0, Number(document.getElementById(`edit-fat-${idx}`).value) || 0);
-        p.sodium = Math.max(0, Number(document.getElementById(`edit-sod-${idx}`).value) || 0);
-        p.cholesterol = Math.max(0, Number(document.getElementById(`edit-chol-${idx}`).value) || 0);
+        p.calorie = readNum(`edit-cal-${idx}`);
+        p.protein = readNum(`edit-prot-${idx}`);
+        p.carb = readNum(`edit-carb-${idx}`);
+        p.sugar = readNum(`edit-sug-${idx}`);
+        p.fat = readNum(`edit-fat-${idx}`);
+        p.sodium = readNum(`edit-sod-${idx}`);
+        p.cholesterol = readNum(`edit-chol-${idx}`);
         p.price = Math.max(0, Number(document.getElementById(`edit-price-${idx}`).value) || 0);
-        // 가격이 바뀌었으니 100g당 가격/단백질 1g당 가격도 최신 가격 기준으로 다시 계산한다.
         p.costPer100 = p.packageGrams && p.price ? p.price / (p.packageGrams / 100) : null;
         p.proteinCostBasis = p.perPackageProtein && p.price ? p.price / p.perPackageProtein : null;
       });
@@ -890,7 +898,7 @@
         <div class="flex items-start gap-1.5">
           <span class="text-base">🤖</span>
           <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">
-            안녕하세요! "단백질 10g 이상", "콜레스테롤 10mg 이하" 등 선호 조건을 자유롭게 적어주세요!
+            안녕하세요! "당뇨 초기예요", "나트륨 적은 제품 위주로" 등 선호 조건을 자유롭게 적어주세요!
           </p>
         </div>`;
     }

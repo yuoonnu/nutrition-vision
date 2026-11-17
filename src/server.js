@@ -24,7 +24,9 @@ const upload = multer({
   limits: { fileSize: 12 * 1024 * 1024, files: 12 },
 });
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (_req, res) =>
+  res.json({ ok: true, rssMB: Math.round(process.memoryUsage().rss / 1048576) })
+);
 
 /* ── 단발 인식 (사진 업로드 방식) ─────────────────────────── */
 
@@ -82,6 +84,7 @@ app.post("/api/recommend", async (req, res) => {
         ...(INTERNAL_API_TOKEN ? { "X-Internal-Token": INTERNAL_API_TOKEN } : {}),
       },
       body: JSON.stringify(req.body ?? {}),
+      signal: AbortSignal.timeout(30_000),
     });
     const data = await upstream.json().catch(() => ({}));
     res.status(upstream.status).json(data);

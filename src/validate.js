@@ -53,9 +53,18 @@ export function validate(data) {
     }
   }
 
-  // 3) 범위 검사
-  for (const [key, [lo, hi]] of Object.entries(SANITY)) {
+    // 3) 범위 검사 — 총 내용량 기준 등 기준 중량이 크면 상한도 그만큼 넓힌다
+  //    (물리적으로 불가능한 값은 아래 6번 총량 검사가 따로 잡는다)
+  const rangeBase = portionGrams(data);
+  const GRAM_KEYS = new Set(["carb", "sugar", "protein", "fat", "saturated_fat", "trans_fat"]);
+  for (const [key, [lo, baseHi]] of Object.entries(SANITY)) {
     const v = n[key];
+    let hi = baseHi;
+    if (rangeBase) {
+      if (GRAM_KEYS.has(key)) hi = Math.max(baseHi, rangeBase);
+      if (key === "calorie") hi = Math.max(baseHi, rangeBase * 9);   // 지방 100%일 때 g당 9kcal
+      if (key === "sodium") hi = Math.max(baseHi, rangeBase * 100);  // g당 100mg (간장보다 넉넉히)
+    }
     if (typeof v === "number" && (v < lo || v > hi)) {
       flag(key, "error", `${NUTRIENT_LABELS_KO[key]} 값 ${v}이(가) 비정상 범위입니다.`);
     }
@@ -102,9 +111,10 @@ export function validate(data) {
     }
   }
 
-  // 7) 사진 품질 신호
+    // 7) 사진 품질 신호 — 흐림·가려짐은 숫자 오독으로 바로 이어지므로 검토로 보낸다
+  const IMAGE_ISSUE_SEVERITY = { not_a_label: "fatal", blurry: "error", obstructed: "error" };
   for (const issue of data?.image_issues ?? []) {
-    flag(null, issue === "not_a_label" ? "fatal" : "warn", IMAGE_ISSUE_KO[issue] ?? issue);
+    flag(null, IMAGE_ISSUE_SEVERITY[issue] ?? "warn", IMAGE_ISSUE_KO[issue] ?? issue);
   }
 
   const fatal = issues.some((i) => i.severity === "fatal");
