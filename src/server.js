@@ -180,7 +180,7 @@ app.listen(port, () => {
   console.log(`서버 실행 중 → http://localhost:${port}`);
   console.log(`스캐너 데모   → http://localhost:${port}/scanner.html`);
   if (!process.env.GEMINI_API_KEY) {
-    console.warn("GEMINI_API_KEY 문제");
+    console.warn("GEMINI_API_KEY가 설정되지 않았습니다.");
   }
 });
 
