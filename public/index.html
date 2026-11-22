@@ -129,21 +129,26 @@
             ✨ 커스텀 가중치가 적용되어 있습니다.
           </p>
           <p id="chat-weight-badge" class="hidden text-[11px] text-emerald-600 font-medium mt-2 bg-emerald-50 p-1.5 rounded-lg text-center border border-emerald-200">
-          💬 자유 서술 기준으로 비교합니다.
+          💬 입력하신 조건으로 비교해요 (목표를 다시 누르면 해제)
           </p>
         </section>
+          <div class="flex items-center gap-2 text-[11px] text-gray-400 font-medium -my-1">
+          <div class="flex-1 h-px bg-gray-200"></div>
+          또는
+          <div class="flex-1 h-px bg-gray-200"></div>
+        </div>
 
         <!-- 2. 자유 서술 요청 -->
         <section class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 flex flex-col gap-2.5">
           <label class="text-xs font-bold text-gray-800 flex items-center gap-1">
-            💬 추가 조건이 있다면 알려주세요
+            💬 위 4가지 목표 대신 원하는 목표를 직접 설정할 수 있어요
           </label>
           
           <div id="chat-messages" class="bg-white border rounded-xl p-3 max-h-[120px] overflow-y-auto space-y-2 text-xs shadow-inner">
             <div class="flex items-start gap-1.5">
               <span class="text-base">🤖</span>
               <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">
-                안녕하세요! "당뇨 초기예요", "나트륨 적은 제품 위주로" 등 특이사항이나 선호 조건을 자유롭게 적어주세요!
+                안녕하세요! "당뇨 초기예요", "나트륨 적은 제품 위주로" 등 특이사항이나 선호 조건을 자유롭게 적어주세요! 입력하면 위에서 고른 목표 대신 이 기준으로 비교해요.
               </p>
             </div>
           </div>
@@ -155,6 +160,7 @@
             </button>
           </div>
         </section>
+
 
       </div>
 
@@ -310,7 +316,7 @@
           <h3 class="text-xl font-bold text-gray-900">직접 가중치 설정</h3>
           <p class="text-xs text-gray-500 mt-1">항목별 중요도를 조절하면 점수 계산에 반영됩니다.</p>
         </div>
-        <div class="space-y-3">
+        <div class="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
           <div>
             <div class="flex justify-between items-center mb-1">
               <span class="text-xs font-bold text-gray-800">칼로리</span>
@@ -331,6 +337,13 @@
               <span id="val-sugar" class="text-xs font-bold text-emerald-500">25%</span>
             </div>
             <input type="range" id="range-sugar" min="0" max="100" value="25" oninput="updateSliderVal('sugar', this.value)" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-xs font-bold text-gray-800">탄수화물</span>
+              <span id="val-carb" class="text-xs font-bold text-emerald-500">0%</span>
+            </div>
+            <input type="range" id="range-carb" min="0" max="100" value="0" oninput="updateSliderVal('carb', this.value)" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
           </div>
           <div>
             <div class="flex justify-between items-center mb-1">
@@ -435,13 +448,12 @@
 
     // 목표(goal) 버튼을 선택했을 때 "가중치 설정" 모달에 기본으로 채워줄 슬라이더 값(%).
     // nutrition_scoring.py의 GOAL_WEIGHTS를 최대한 반영하되, 이 모달은 calorie/protein/sugar/sodium/cost
-    // 5개 슬라이더만 지원하므로 그 항목이 없는 프리셋(carb, fat)은 가장 가까운 항목에 합산해 근사한다.
-    //  - blood_sugar: 원래 sugar+carb 가중치 → carb 몫을 sugar에 합산
+
     const GOAL_SLIDER_PRESETS = {
-      weight_loss:   { calorie: 44, protein: 30, sugar: 26, sodium: 0,  fat: 0,  cost: 0 },
-      muscle:        { calorie: 0,  protein: 50, sugar: 0,  sodium: 0,  fat: 0,  cost: 50 },
-      blood_sugar:   { calorie: 0,  protein: 0,  sugar: 100, sodium: 0, fat: 0,  cost: 0 },
-      anti_swelling: { calorie: 0,  protein: 0,  sugar: 25, sodium: 50, fat: 25, cost: 0 },
+      weight_loss:   { calorie: 44, protein: 30, sugar: 26, carb: 0,  sodium: 0,  fat: 0,  cost: 0 },
+      muscle:        { calorie: 0,  protein: 50, sugar: 0,  carb: 0,  sodium: 0,  fat: 0,  cost: 50 },
+      blood_sugar:   { calorie: 0,  protein: 0,  sugar: 55, carb: 45, sodium: 0,  fat: 0,  cost: 0 },
+      anti_swelling: { calorie: 0,  protein: 0,  sugar: 25, carb: 0,  sodium: 50, fat: 25, cost: 0 },
     };
 
     function presetToWeights(goal) {
@@ -567,7 +579,7 @@
         const parts = [];
         if (data.lower?.length) parts.push(`${data.lower.join('·')}이(가) 적은`);
         if (data.higher?.length) parts.push(`${data.higher.join('·')}이(가) 많은`);
-        reply.innerHTML = `알겠어요! <b>${escapeHtml(parts.join(', '))}</b> 제품을 우선해서 비교할게요.`;
+        reply.innerHTML = `알겠어요! <b>${escapeHtml(parts.join(', '))}</b> 제품을 우선해서 비교할게요. 선택한 목표 대신 이 기준을 적용해요.`;
 
         if (isCustomWeightActive) {
           reply.innerHTML += '<br>지금은 직접 설정한 가중치가 우선 적용 중이에요. 이 내용을 쓰려면 목표를 다시 선택해 주세요.';
@@ -1059,7 +1071,7 @@
         <div class="flex items-start gap-1.5">
           <span class="text-base">🤖</span>
           <p class="bg-emerald-50 text-emerald-900 p-2 rounded-lg leading-relaxed text-[11px]">
-            안녕하세요! "당뇨 초기예요", "나트륨 적은 제품 위주로" 등 선호 조건을 자유롭게 적어주세요!
+            안녕하세요! "당뇨 초기예요", "나트륨 적은 제품 위주로" 등 선호 조건을 자유롭게 적어주세요! 입력하면 위에서 고른 목표 대신 이 기준으로 비교해요.
           </p>
         </div>`;
     }
