@@ -874,18 +874,19 @@
         flagged.map((p) => `<p>• <b>${escapeHtml(p.name)}</b>: ${escapeHtml(p.reviewReasons[0] || '일부 값이 확실하지 않아요.')}</p>`).join('') +
         `<button onclick="openEditModal()" class="mt-2 text-amber-700 font-bold underline">✏️ 값 확인·수정하기</button>`;
     }
-    function renderResultTable() {
+      function renderResultTable() {
       renderReviewBanner();
       const headRow = document.getElementById('table-head-row');
       const tbody = document.getElementById('table-body');
 
-              const reviewMark = p.needsReview
-          ? `<br><span class="text-[9px] text-amber-600 font-bold cursor-pointer" onclick="openEditModal()">⚠️ 확인 필요</span>`
-          : '';
-      headRow.innerHTML += `<th class="p-2 min-w-[85px] ${bgClass}">${p.name} ${p.isWinner ? '(1위)' : ''}${reviewMark}</th>`;
+      // 머리글 초기화: 맨 왼쪽 "항목" 칸부터 새로 만든다 (다시 채점할 때 칸이 쌓이지 않게)
+      headRow.innerHTML = `<th class="p-2 text-left sticky left-0 bg-gray-50 z-10 border-r">항목</th>`;
       products.forEach(p => {
         const bgClass = p.isWinner ? 'bg-emerald-50 text-emerald-700 font-bold' : '';
-        headRow.innerHTML += `<th class="p-2 min-w-[85px] ${bgClass}">${p.name} ${p.isWinner ? '(1위)' : ''}</th>`;
+        const reviewMark = p.needsReview
+          ? `<br><span class="text-[9px] text-amber-600 font-bold cursor-pointer" onclick="openEditModal()">⚠️ 확인 필요</span>`
+          : '';
+        headRow.innerHTML += `<th class="p-2 min-w-[85px] ${bgClass}">${p.name} ${p.isWinner ? '(1위)' : ''}${reviewMark}</th>`;
       });
 
       // "단백질 1g당"은 '가성비 근성장' 프리셋을 선택해서 채점했을 때만 의미가 있는
