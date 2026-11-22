@@ -39,7 +39,7 @@ Google Gemini Vision이 사진을 읽고, 그 결과를 그대로 믿지 않고 
 | `needs_review` | 일부 항목이 불확실함 | `reviewFields`의 항목을 사용자에게 직접 입력받기 |
 | `failed` | 영양성분표를 찾지 못했거나 너무 흐림 | `retakeHint`로 재촬영 안내 |
 
-> 이 프로젝트의 핵심 철학은 **"AI는 틀릴 수 있다"** 입니다.
+> 이 프로젝트의 핵심 철학은 "AI는 틀릴 수 있다"입니다.
 > 흐린 숫자를 그럴듯하게 지어내는 것이 가장 위험하므로, 확신이 없으면 비워두게 하고(`null`) 나머지는 코드로 검증합니다.
 
 ### 여러 제품(batch)일 때
@@ -52,18 +52,6 @@ Google Gemini Vision이 사진을 읽고, 그 결과를 그대로 믿지 않고 
   "summary": { "total": 3, "ok": 2, "needsReview": 0, "failed": 1, "comparable": false }
 }
 ```
-
-> ⚠️ 화면은 `failed` / `needs_review` 제품을 조용히 제외하지 말고, 사용자에게 재촬영 또는 직접 입력을 요청한 뒤 추천을 호출해야 합니다.
-
-## 🛠 기술 스택
-
-| 구분 | 사용 기술 |
-| --- | --- |
-| Runtime | Node.js 20+ (ES Modules) |
-| Server | Express, Multer, CORS |
-| Image | sharp |
-| AI | Google Gemini Vision (REST, SDK 없이 `fetch`만 사용) |
-| Etc. | dotenv, xlsx (테스트 결과 정리용, dev) |
 
 ## 📁 프로젝트 구조
 
