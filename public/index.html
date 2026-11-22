@@ -338,6 +338,13 @@
           </div>
           <div>
             <div class="flex justify-between items-center mb-1">
+              <span class="text-xs font-bold text-gray-800">지방</span>
+              <span id="val-fat" class="text-xs font-bold text-emerald-500">0%</span>
+            </div>
+            <input type="range" id="range-fat" min="0" max="100" value="0" oninput="updateSliderVal('fat', this.value)" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
               <span class="text-xs font-bold text-gray-800">가격</span>
               <span id="val-cost" class="text-xs font-bold text-emerald-500">10%</span>
             </div>
@@ -424,12 +431,11 @@
     // nutrition_scoring.py의 GOAL_WEIGHTS를 최대한 반영하되, 이 모달은 calorie/protein/sugar/sodium/cost
     // 5개 슬라이더만 지원하므로 그 항목이 없는 프리셋(carb, fat)은 가장 가까운 항목에 합산해 근사한다.
     //  - blood_sugar: 원래 sugar+carb 가중치 → carb 몫을 sugar에 합산
-    //  - anti_swelling: 원래 sodium+sugar+fat 가중치 → fat 몫을 sodium에 합산
     const GOAL_SLIDER_PRESETS = {
-      weight_loss:   { calorie: 44, protein: 30, sugar: 26, sodium: 0,  cost: 0 },
-      muscle:        { calorie: 0,  protein: 50, sugar: 0,  sodium: 0,  cost: 50 },
-      blood_sugar:   { calorie: 0,  protein: 0,  sugar: 100, sodium: 0, cost: 0 },
-      anti_swelling: { calorie: 0,  protein: 0,  sugar: 33, sodium: 67, cost: 0 },
+      weight_loss:   { calorie: 44, protein: 30, sugar: 26, sodium: 0,  fat: 0,  cost: 0 },
+      muscle:        { calorie: 0,  protein: 50, sugar: 0,  sodium: 0,  fat: 0,  cost: 50 },
+      blood_sugar:   { calorie: 0,  protein: 0,  sugar: 100, sodium: 0, fat: 0,  cost: 0 },
+      anti_swelling: { calorie: 0,  protein: 0,  sugar: 25, sodium: 50, fat: 25, cost: 0 },
     };
 
     function presetToWeights(goal) {
