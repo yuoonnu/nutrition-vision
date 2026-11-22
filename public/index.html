@@ -630,12 +630,45 @@
       const file = event.target.files[0];
       if (!file) return;
       uploadedFiles[slot] = file;
+      clearSlotError(slot); // 새 사진을 올리면 이전 실패 표시를 지운다
 
       const reader = new FileReader();
       reader.onload = function(e) {
         document.getElementById(`preview-${slot}`).innerHTML = `<img src="${e.target.result}" class="h-16 w-full object-cover rounded-lg">`;
       };
       reader.readAsDataURL(file);
+    }
+
+    // 왜 비교에서 빠졌는지 사용자가 알아들을 수 있는 문장으로 바꾼다
+    function dropReason(p) {
+      if (p.retakeHint) return p.retakeHint;
+      const code = p.issues?.find((i) => i.code)?.code;
+      if (code === 'too_blurry') return '사진이 너무 흐려요. 표에 초점을 맞추고 다시 찍어 주세요.';
+      if (p.status !== 'failed' && !p.normalized?.per100) {
+        return '1회 제공량이나 기준 중량을 읽지 못해 100g당으로 바꿀 수 없어요. 표 위쪽의 기준량이 보이게 찍어 주세요.';
+      }
+      return p.issues?.[0]?.message || '인식하지 못했어요. 다시 찍어 주세요.';
+    }
+
+    // 실패한 칸을 빨갛게 표시하고 이유를 보여 준다
+    function markSlotError(slot, reason) {
+      const box = document.getElementById(`preview-${slot}`)?.parentElement;
+      if (!box) return;
+      box.classList.add('border-red-400', 'bg-red-50');
+      let msg = document.getElementById(`slot-error-${slot}`);
+      if (!msg) {
+        msg = document.createElement('p');
+        msg.id = `slot-error-${slot}`;
+        msg.className = 'text-[10px] text-red-500 font-medium leading-snug';
+        box.insertAdjacentElement('afterend', msg);
+      }
+      msg.textContent = reason;
+    }
+
+    function clearSlotError(slot) {
+      const box = document.getElementById(`preview-${slot}`)?.parentElement;
+      box?.classList.remove('border-red-400', 'bg-red-50');
+      document.getElementById(`slot-error-${slot}`)?.remove();
     }
 
     async function startAnalysis() {
@@ -659,13 +692,32 @@
         if (!extractRes.ok) throw new Error(`사진 인식에 실패했습니다 (${extractRes.status})`);
         const batch = await extractRes.json();
 
-        // 2. 인식 실패했거나 100g/ml당 환산이 안 되는 제품은 제외
-        const usable = batch.products
-          .map((p, i) => ({ p, slot: activeSlots[i].idx }))
-          .filter(({ p }) => p.status !== "failed" && p.normalized?.per100);
+        // 2. 제품별로 비교 가능 여부를 나누고, 빠지는 제품은 이유와 함께 알려 준다
+        const all = batch.products.map((p, i) => ({ p, slot: activeSlots[i].idx }));
+        const usable = all.filter(({ p }) => p.status !== "failed" && p.normalized?.per100);
+        const dropped = all.filter((r) => !usable.includes(r));
 
-        if (usable.length < 2) {
-          throw new Error("정상적으로 인식 가능한 제품이 2개 미만입니다. 라벨이 잘 보이게 다시 촬영해주세요.");
+        [0, 1, 2, 3].forEach(clearSlotError);
+        if (dropped.length) {
+          const lines = dropped.map(({ p, slot }) => {
+            const name = document.getElementById(`name-${slot}`)?.value.trim() || `제품 ${String.fromCharCode(65 + slot)}`;
+            const reason = dropReason(p);
+            markSlotError(slot, reason);
+            return `• ${name}: ${reason}`;
+          }).join("\n");
+
+          if (usable.length < 2) {
+            throw new Error(`인식하지 못한 제품이 있어 비교할 수 없어요.\n\n${lines}\n\n빨갛게 표시된 칸의 사진을 다시 올려 주세요.`);
+          }
+
+          const goOn = confirm(
+            `아래 제품은 인식하지 못해 비교에서 빠져요.\n\n${lines}\n\n[확인] 나머지 ${usable.length}개로 비교\n[취소] 사진 다시 올리기`
+          );
+          if (!goOn) {
+            document.getElementById('step-loading').classList.add('hidden');
+            document.getElementById('step-2').classList.remove('hidden');
+            return;
+          }
         }
 
         // 3. 사용자가 입력한 이름/가격을 결합. 영양소는 100g/ml당 값 기준으로 통일
@@ -693,6 +745,9 @@
             costPer100: packageGrams && priceInput ? priceInput / (packageGrams / 100) : null,
             // 단백질 1g당 가격 — 총 내용량 기준 단백질 총량을 읽었을 때만 정확히 계산 가능
             proteinCostBasis: perPackageProtein && priceInput ? priceInput / perPackageProtein : null,
+            // 서버가 "확인 필요"로 판정한 제품과 그 이유 (흐림, 검산 불일치 등)
+            needsReview: p.status === "needs_review",
+            reviewReasons: (p.issues || []).filter((i) => (i.severity ?? "error") === "error").map((i) => i.message),
             isWinner: false,
           };
         });
@@ -799,12 +854,32 @@
           ${products.map(p => `<td class="p-2 ${p.isWinner ? 'font-bold bg-emerald-50' : ''}">${getValue(p)}</td>`).join('')}
         </tr>`;
     }
-
+    // "확인 필요" 제품이 있으면 결과 표 위에 이유와 수정 버튼을 보여 준다
+    function renderReviewBanner() {
+      const flagged = products.filter((p) => p.needsReview);
+      let banner = document.getElementById('review-banner');
+      if (!flagged.length) { banner?.remove(); return; }
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'review-banner';
+        banner.className = 'bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 text-[11px] leading-relaxed';
+        const tableSection = document.getElementById('table-head-row').closest('section');
+        tableSection.parentElement.insertBefore(banner, tableSection);
+      }
+      banner.innerHTML =
+        `<p class="font-bold mb-1">⚠️ 아래 제품은 인식 결과를 한 번 확인해 주세요</p>` +
+        flagged.map((p) => `<p>• <b>${escapeHtml(p.name)}</b>: ${escapeHtml(p.reviewReasons[0] || '일부 값이 확실하지 않아요.')}</p>`).join('') +
+        `<button onclick="openEditModal()" class="mt-2 text-amber-700 font-bold underline">✏️ 값 확인·수정하기</button>`;
+    }
     function renderResultTable() {
+      renderReviewBanner();
       const headRow = document.getElementById('table-head-row');
       const tbody = document.getElementById('table-body');
 
-      headRow.innerHTML = `<th class="p-2 text-left sticky left-0 bg-gray-50 z-10 border-r">항목</th>`;
+              const reviewMark = p.needsReview
+          ? `<br><span class="text-[9px] text-amber-600 font-bold cursor-pointer" onclick="openEditModal()">⚠️ 확인 필요</span>`
+          : '';
+      headRow.innerHTML += `<th class="p-2 min-w-[85px] ${bgClass}">${p.name} ${p.isWinner ? '(1위)' : ''}${reviewMark}</th>`;
       products.forEach(p => {
         const bgClass = p.isWinner ? 'bg-emerald-50 text-emerald-700 font-bold' : '';
         headRow.innerHTML += `<th class="p-2 min-w-[85px] ${bgClass}">${p.name} ${p.isWinner ? '(1위)' : ''}</th>`;
@@ -853,6 +928,7 @@
             <div class="flex justify-between items-center border-b pb-1">
               <span class="font-bold text-emerald-700 text-xs">제품 ${String.fromCharCode(65 + idx)} 세부 데이터</span>
             </div>
+            ${p.needsReview ? `<p class="text-[10px] text-amber-700 bg-amber-50 p-1.5 rounded">⚠️ ${escapeHtml(p.reviewReasons.join(' / ') || '일부 값이 확실하지 않아요.')}</p>` : ''}
             <div class="grid grid-cols-2 gap-2">
               <div class="col-span-2">
                 <label class="text-[10px] text-gray-500">제품명</label>
@@ -908,6 +984,8 @@
       };
 
       products.forEach((p, idx) => {
+        p.needsReview = false;   // 사용자가 값을 확인하고 저장했으므로 확인 필요 해제
+        p.reviewReasons = [];
         p.name = document.getElementById(`edit-name-${idx}`).value || p.name;
         p.calorie = readNum(`edit-cal-${idx}`);
         p.protein = readNum(`edit-prot-${idx}`);
@@ -959,6 +1037,7 @@
       syncWeightSliders();
 
       uploadedFiles.fill(null);
+      [0, 1, 2, 3].forEach(clearSlotError);
       [0, 1, 2, 3].forEach((slot) => {
         document.getElementById(`preview-${slot}`).innerHTML =
           `<span class="text-lg">📷</span><p class="text-[10px] text-gray-400 font-medium">라벨 촬영/업로드</p>`;
