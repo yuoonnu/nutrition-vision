@@ -351,7 +351,10 @@
             <input type="range" id="range-cost" min="0" max="100" value="10" oninput="updateSliderVal('cost', this.value)" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
           </div>
         </div>
-        <button onclick="applyCustomWeights()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-2xl text-sm transition shadow-md mt-1">
+        <p id="weight-warning" class="hidden text-[11px] text-red-500 font-medium text-center -mb-2">
+          최소 한 개 항목은 0%보다 크게 설정해 주세요.
+        </p>
+        <button id="apply-weights-btn" onclick="applyCustomWeights()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-2xl text-sm transition shadow-md mt-1">
           가중치 적용
         </button>
       </div>
@@ -478,12 +481,15 @@
 
     function selectGoal(element, goal) {
       selectedGoalValue = goal;
+
+      // 프리셋을 고르면 직접 가중치와 자유 서술 기준을 모두 해제한다
       isCustomWeightActive = false;
-      chatHistory = []; // 목표 카드를 직접 고르면 자유 서술 기준은 해제
-      document.getElementById('chat-weight-badge').classList.add('hidden');
+      document.getElementById('custom-weight-badge')?.classList.add('hidden');
+      chatHistory = [];
       chatWeights = null;
       chatText = '';
-      
+      document.getElementById('chat-weight-badge')?.classList.add('hidden');
+
       document.querySelectorAll('.goal-btn').forEach(btn => {
         btn.className = 'goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]';
         const descDiv = btn.querySelector('div:last-child');
@@ -494,7 +500,7 @@
       const descDiv = element.querySelector('div:last-child');
       if (descDiv) descDiv.className = 'text-[10px] text-emerald-600 font-normal';
 
-      // 선택한 목표에 맞춰 "가중치 설정" 모달의 기본값도 함께 갱신
+      // 선택한 목표에 맞춰 "가중치 설정" 창의 기본값도 갱신
       customWeights = presetToWeights(goal);
       syncWeightSliders();
     }
@@ -576,12 +582,27 @@
       }
     }
 
+    // 가중치가 모두 0이면 비교할 기준이 없으므로 경고를 띄우고 적용 버튼을 막는다
+    function checkWeights() {
+      const allZero = Object.values(customWeights).every((v) => !v);
+      document.getElementById('weight-warning')?.classList.toggle('hidden', !allZero);
+      const btn = document.getElementById('apply-weights-btn');
+      if (btn) {
+        btn.disabled = allZero;
+        btn.classList.toggle('opacity-40', allZero);
+        btn.classList.toggle('cursor-not-allowed', allZero);
+      }
+      return !allZero;
+    }
+
     function updateSliderVal(key, val) {
       document.getElementById(`val-${key}`).innerText = `${val}%`;
       customWeights[key] = Number(val) / 100;
+      checkWeights();
     }
 
     function applyCustomWeights() {
+      if (!checkWeights()) return; // 모두 0이면 적용하지 않음
       isCustomWeightActive = true;
       document.querySelectorAll('.goal-btn').forEach(btn => {
         btn.className = 'goal-btn border-2 border-gray-200 text-gray-600 p-3 rounded-2xl text-left transition flex flex-col justify-between min-h-[72px]';
@@ -592,6 +613,7 @@
 
     function openWeightModal() {
       syncWeightSliders();
+      checkWeights();
       document.getElementById('modal-weight').classList.remove('hidden');
     }
     function closeWeightModal() { document.getElementById('modal-weight').classList.add('hidden'); }
